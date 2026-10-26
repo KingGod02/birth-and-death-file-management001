@@ -1,0 +1,3248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Birth &amp; Death File Management System</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.3.4/dist/mqtt.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --app-font: 'Inter', sans-serif;
+    }
+    body {
+      font-family: var(--app-font);
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+
+    /* Exact Status Colors Requested:
+       1. Pending in Red
+       2. Urgent in Dark Red
+       3. Sign in Green
+       4. Sign Remaining in Dark Yellow
+    */
+    .status-pending {
+      background-color: #ef4444; /* Red */
+      color: #ffffff;
+      border-color: #dc2626;
+    }
+    .status-pending-row {
+      background-color: #fef2f2;
+      border-left: 5px solid #ef4444;
+    }
+    .status-urgent {
+      background-color: #7f1d1d; /* Dark Red */
+      color: #ffffff;
+      border-color: #450a0a;
+    }
+    .status-urgent-row {
+      background-color: #fff1f2;
+      border-left: 5px solid #7f1d1d;
+    }
+    .status-sign {
+      background-color: #16a34a; /* Green */
+      color: #ffffff;
+      border-color: #15803d;
+    }
+    .status-sign-row {
+      background-color: #f0fdf4;
+      border-left: 5px solid #16a34a;
+    }
+    .status-sign_remaining {
+      background-color: #ca8a04; /* Dark Yellow / Amber-Gold */
+      color: #ffffff;
+      border-color: #a16207;
+    }
+    .status-sign_remaining-row {
+      background-color: #fefce8;
+      border-left: 5px solid #ca8a04;
+    }
+
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+      body {
+        background-color: #ffffff;
+      }
+      .print-full {
+        box-shadow: none !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Header -->
+  <header class="bg-slate-900 text-white shadow-lg border-b border-slate-800 no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-extrabold text-lg shadow-inner shrink-0">
+            B&amp;D
+          </div>
+          <div>
+            <h1 class="text-xl sm:text-2xl font-bold tracking-tight" id="lblHeaderTitle">
+              Birth &amp; Death File Management System
+            </h1>
+            <p class="text-xs sm:text-sm text-slate-300" id="lblHeaderSubtitle">
+              Application File Tracker • Public Status Viewer &amp; Administration Portal
+            </p>
+          </div>
+        </div>
+
+        <!-- Role Switcher, Live Cross-Device Sync, QR Code & Admin Controls -->
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+          <button id="btnOpenSyncModal" type="button" class="inline-flex items-center gap-2 text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 px-3 py-1.5 rounded-lg transition font-bold shadow-sm" title="Real-Time Multi-Device Sync (Admin Device A ↔ Viewer Device B)">
+            <span id="syncStatusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span id="syncStatusHeaderText">Live Sync: Connecting...</span>
+          </button>
+
+          <button id="btnOpenQrModal" type="button" class="inline-flex items-center gap-1.5 text-xs sm:text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-1.5 rounded-lg transition font-extrabold shadow-sm">
+            <span>📱</span>
+            <span>Public QR Code</span>
+          </button>
+
+          <button id="btnSwitchToViewer" type="button" class="inline-flex items-center gap-1.5 text-xs sm:text-sm bg-sky-600 hover:bg-sky-500 text-white border border-sky-400 px-3 py-1.5 rounded-lg transition font-bold shadow-sm">
+            <span>👥</span>
+            <span>Public Viewer</span>
+          </button>
+
+          <button id="btnOpenAdminLogin" type="button" class="inline-flex items-center gap-1.5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-3 py-1.5 rounded-lg transition font-bold shadow-sm">
+            <span>🔐</span>
+            <span id="lblAdminBtn">Admin Login</span>
+          </button>
+
+          <div id="adminLoggedInBadge" class="hidden items-center gap-2 bg-emerald-950/90 border border-emerald-500/60 px-3 py-1.5 rounded-lg text-xs text-emerald-200">
+            <span>🛡️ <strong>Admin:</strong> <span id="activeAdminEmailText">aryanbhavsar194@gmail.com</span></span>
+            <button id="btnAdminLogout" type="button" class="ml-1 px-2 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-[11px] transition">
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Primary Navigation Tabs -->
+  <nav class="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-wrap items-center justify-between gap-2 py-2.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="tabBtnViewer" type="button" class="px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-sky-700 text-white shadow">
+            <span>👥</span>
+            <span id="lblTabViewer">Public Viewer (Check Status)</span>
+          </button>
+          <button id="tabBtnEntry" type="button" class="px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700">
+            <span>📝</span>
+            <span id="lblTab1">1. New File Entry (Data Store)</span>
+          </button>
+          <button id="tabBtnList" type="button" class="px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700">
+            <span>📂</span>
+            <span id="lblTab2">2. All Stored Files &amp; Status</span>
+            <span id="navTotalBadge" class="ml-1 px-2 py-0.5 text-xs rounded-full bg-amber-500 text-slate-950 font-extrabold">0</span>
+          </button>
+          <button id="tabBtnSplit" type="button" class="hidden lg:inline-flex px-3.5 py-2.5 rounded-xl font-semibold text-sm transition items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700" title="View both Entry and List side by side">
+            <span>⚡</span>
+            <span id="lblTabSplit">Split View (Both Sections)</span>
+          </button>
+        </div>
+
+        <!-- Color Legend Quick Reference -->
+        <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md status-pending shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-white"></span>
+            <span class="lblLegendPending">Pending (Red)</span>
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md status-urgent shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-red-200"></span>
+            <span class="lblLegendUrgent">Urgent (Dark Red)</span>
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md status-sign shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-white"></span>
+            <span class="lblLegendSign">Sign (Green)</span>
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md status-sign_remaining shadow-sm">
+            <span class="w-2 h-2 rounded-full bg-white"></span>
+            <span class="lblLegendSignRem">Sign Remaining (Dark Yellow)</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- Status Summary Counter Cards (Admin Only) -->
+    <div id="adminSummaryCardsGrid" class="hidden grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 no-print">
+      <!-- Total Card -->
+      <button type="button" data-filter-card="ALL" class="summary-card text-left bg-white p-4 rounded-2xl border-2 border-slate-200 hover:border-slate-400 shadow-sm transition flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs sm:text-sm font-bold text-slate-600" id="lblCardTotal">Total Files</span>
+          <span class="text-lg">📁</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="statTotal" class="text-2xl sm:text-3xl font-extrabold text-slate-900">0</span>
+          <span id="statBirthDeathSplit" class="text-xs text-slate-500 font-medium">Birth: 0 | Death: 0</span>
+        </div>
+      </button>
+
+      <!-- Pending (Red) -->
+      <button type="button" data-filter-card="pending" class="summary-card text-left p-4 rounded-2xl border-2 border-red-600 status-pending shadow-sm hover:opacity-95 transition flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs sm:text-sm font-bold" id="lblCardPending">Pending</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-white/20 font-semibold">Red</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="statPending" class="text-2xl sm:text-3xl font-extrabold">0</span>
+          <span class="text-xs text-white/90">Click to filter</span>
+        </div>
+      </button>
+
+      <!-- Urgent (Dark Red) -->
+      <button type="button" data-filter-card="urgent" class="summary-card text-left p-4 rounded-2xl border-2 border-red-950 status-urgent shadow-sm hover:opacity-95 transition flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs sm:text-sm font-bold" id="lblCardUrgent">Urgent</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-white/20 font-semibold">Dark Red</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="statUrgent" class="text-2xl sm:text-3xl font-extrabold">0</span>
+          <span class="text-xs text-red-100">Click to filter</span>
+        </div>
+      </button>
+
+      <!-- Sign Remaining (Dark Yellow) -->
+      <button type="button" data-filter-card="sign_remaining" class="summary-card text-left p-4 rounded-2xl border-2 border-yellow-700 status-sign_remaining shadow-sm hover:opacity-95 transition flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs sm:text-sm font-bold" id="lblCardSignRem">Sign Remaining</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-white/20 font-semibold">Dark Yellow</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="statSignRem" class="text-2xl sm:text-3xl font-extrabold">0</span>
+          <span class="text-xs text-yellow-50">Click to filter</span>
+        </div>
+      </button>
+
+      <!-- Sign Completed (Green) -->
+      <button type="button" data-filter-card="sign" class="summary-card text-left p-4 rounded-2xl border-2 border-green-700 status-sign shadow-sm hover:opacity-95 transition flex flex-col justify-between col-span-2 sm:col-span-1">
+        <div class="flex items-center justify-between">
+          <span class="text-xs sm:text-sm font-bold" id="lblCardSign">Sign Completed</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-white/20 font-semibold">Green</span>
+        </div>
+        <div class="mt-2 flex items-baseline justify-between">
+          <span id="statSign" class="text-2xl sm:text-3xl font-extrabold">0</span>
+          <span class="text-xs text-green-50">Click to filter</span>
+        </div>
+      </button>
+    </div>
+
+    <!-- PUBLIC VIEWER-ONLY INTERFACE FOR GENERAL PEOPLE -->
+    <section id="sectionViewer" class="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden mb-6">
+      <div class="bg-gradient-to-r from-sky-900 via-slate-900 to-slate-900 text-white px-6 py-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-200 text-xs font-bold mb-1">
+            👁️ Viewer-Only Interface for General Public
+          </div>
+          <h2 class="text-lg sm:text-2xl font-bold flex items-center gap-2">
+            <span>👥</span>
+            <span>Check Birth / Death Application File Status</span>
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-300 mt-0.5">
+            Enter the Applicant Name, select Birth or Death, and choose the Application Date to view your file status.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button type="button" id="btnShareWhatsApp" class="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs sm:text-sm font-extrabold transition flex items-center gap-1.5 shadow">
+            <span>💬</span>
+            <span>Share on WhatsApp</span>
+          </button>
+          <button type="button" id="btnViewerShowQr" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-extrabold transition flex items-center gap-1.5 shadow">
+            <span>📱</span>
+            <span>Scan QR Code</span>
+          </button>
+          <button type="button" id="btnViewerAdminShortcut" class="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <span>🔐</span>
+            <span>Admin Login</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 border-b border-slate-200">
+        <!-- Search Form (8 cols on desktop) - Strict Privacy Protected -->
+        <form id="publicViewerForm" class="lg:col-span-8 p-6 space-y-5 bg-slate-50/60" autocomplete="off">
+          <div class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2 text-xs text-amber-950 font-semibold">
+            <span>🔒 <strong>Privacy Protected Lookup:</strong> Other people's files are strictly hidden. You must enter the exact Application Details &amp; DOB/DOD to view only your own file.</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <!-- 1. Applicant Name -->
+            <div class="md:col-span-4">
+              <label for="viewerNameInput" class="block text-sm font-bold text-slate-800 mb-1.5">
+                1. Full Name of Applicant <span class="text-red-600">*</span>
+              </label>
+              <input
+                type="text"
+                id="viewerNameInput"
+                required
+                placeholder="Enter full Applicant Name..."
+                class="w-full px-3.5 py-2.5 text-base rounded-xl border-2 border-slate-300 focus:border-sky-700 bg-white outline-none transition font-medium text-slate-900"
+              >
+            </div>
+
+            <!-- 2. Birth or Death -->
+            <div class="md:col-span-3">
+              <span class="block text-sm font-bold text-slate-800 mb-1.5">
+                2. Birth or Death <span class="text-red-600">*</span>
+              </span>
+              <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Viewer Birth or Death">
+                <label id="viewerCardBirth" class="cursor-pointer rounded-xl border-2 border-sky-600 bg-sky-50 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none shadow-sm">
+                  <input type="radio" name="viewerRecordType" value="Birth" checked class="w-4 h-4 text-sky-600">
+                  <span class="font-bold text-sky-950 text-xs sm:text-sm">👶 Birth</span>
+                </label>
+                <label id="viewerCardDeath" class="cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none">
+                  <input type="radio" name="viewerRecordType" value="Death" class="w-4 h-4 text-slate-800">
+                  <span class="font-bold text-slate-900 text-xs sm:text-sm">🕊️ Death</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 3. Application Date -->
+            <div class="md:col-span-2">
+              <label for="viewerDateInput" class="block text-sm font-bold text-slate-800 mb-1.5">
+                3. App Date <span class="text-red-600">*</span>
+              </label>
+              <input
+                type="date"
+                id="viewerDateInput"
+                required
+                class="w-full px-2.5 py-2.5 text-sm rounded-xl border-2 border-slate-300 focus:border-sky-700 bg-white outline-none transition font-semibold text-slate-900"
+              >
+            </div>
+
+            <!-- 4. Privacy Verification: Date of Birth (DOB) or Date of Death (DOD) -->
+            <div class="md:col-span-3">
+              <label for="viewerEventDateInput" id="lblViewerEventDate" class="block text-sm font-bold text-sky-900 mb-1.5">
+                4. Date of Birth (DOB) <span class="text-red-600">*</span>
+              </label>
+              <input
+                type="date"
+                id="viewerEventDateInput"
+                class="w-full px-2.5 py-2.5 text-sm rounded-xl border-2 border-sky-300 focus:border-sky-700 bg-white outline-none transition font-semibold text-slate-900"
+              >
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <p class="text-xs text-slate-600 font-medium">
+              🔒 For privacy, only the matching applicant's file is shown after verifying Name + Birth/Death + Application Date + Date of Birth/Death.
+            </p>
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                id="btnViewerShowAllLive"
+                class="hidden px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-sm transition items-center gap-1.5"
+              >
+                <span>📋</span>
+                <span>Show All Live Files</span>
+              </button>
+              <button
+                type="button"
+                id="btnViewerReset"
+                class="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs sm:text-sm transition"
+              >
+                Clear
+              </button>
+              <button
+                type="submit"
+                id="btnViewerSearch"
+                class="px-6 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-sm sm:text-base shadow-md transition flex items-center gap-2"
+              >
+                <span>🔍</span>
+                <span>Check File Status</span>
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Embedded Quick QR Card for General People (4 cols on desktop) -->
+        <div class="lg:col-span-4 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 p-5 flex items-center justify-between sm:justify-center gap-4">
+          <div id="inlineViewerQrBox" class="w-28 h-28 bg-white p-1.5 rounded-xl border-2 border-slate-200 shadow-sm flex items-center justify-center shrink-0 cursor-pointer" title="Click to enlarge QR Code">
+            <!-- Populated by JS QR Generator -->
+          </div>
+          <div class="space-y-1.5">
+            <span id="inlineQrModeBadge" class="inline-block text-[11px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+              📲 Live Status QR (Ready)
+            </span>
+            <h3 class="text-sm font-bold text-slate-900">Scan with Phone Camera</h3>
+            <p class="text-xs text-slate-500 leading-relaxed" id="inlineQrDescText">
+              Scans directly on any phone to view current file statuses, or configure a live website URL.
+            </p>
+            <button type="button" id="btnEnlargeQrCard" class="text-xs font-bold text-sky-700 hover:text-sky-900 underline">
+              Enlarge / Print QR Poster →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Sync Strip on Viewer Device B -->
+      <div class="bg-emerald-50/90 border-b border-emerald-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div class="flex items-center gap-2 text-emerald-950 font-semibold">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-600 animate-ping"></span>
+          <span id="viewerLiveSyncBanner">🔒 Privacy Mode Active: All public records are hidden until verified by Applicant Name, Application Date &amp; DOB/DOD.</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="viewerTotalFilesSyncedBadge" class="font-extrabold text-emerald-900 bg-emerald-200/70 px-2.5 py-0.5 rounded-full">🔒 Private Sync Ready</span>
+          <button type="button" id="btnViewerRefreshNow" class="font-bold text-sky-800 hover:text-sky-950 underline">
+            🔄 Refresh Now
+          </button>
+        </div>
+      </div>
+
+      <!-- Viewer-Only Search Results Container -->
+      <div id="viewerResultsWrapper" class="p-6">
+        <div id="viewerInitialPrompt" class="text-center py-8 text-slate-500 space-y-2">
+          <div class="text-3xl">🔎</div>
+          <p class="font-bold text-slate-700 text-base">Enter Application Details Above to Check Status</p>
+          <p class="text-xs text-slate-500">Provide the Applicant Name, select Birth or Death, and choose the Application Date.</p>
+        </div>
+
+        <div id="viewerNoMatchBox" class="hidden text-center py-8 bg-red-50/60 rounded-2xl border border-red-200 p-6 space-y-2">
+          <div class="text-3xl">📭</div>
+          <h3 class="text-base sm:text-lg font-bold text-red-900">No Matching Application File Found</h3>
+          <p class="text-xs sm:text-sm text-red-700 max-w-lg mx-auto">
+            Please verify the Applicant Name, Birth or Death selection, and Application Date and try again.
+          </p>
+        </div>
+
+        <div id="viewerMatchedList" class="hidden space-y-4">
+          <!-- Populated dynamically in read-only mode -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Layout Container for Section 1 & Section 2 (Admin Protected) -->
+    <div id="sectionsGrid" class="hidden grid-cols-1 gap-6">
+
+      <!-- SECTION 1: DATA ENTRY FORM -->
+      <section id="sectionEntry" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden no-print">
+        <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg sm:text-xl font-bold flex items-center gap-2">
+              <span>📝</span>
+              <span id="lblFormHeading">Section 1: Store New Application File</span>
+            </h2>
+            <p class="text-xs sm:text-sm text-slate-300 mt-0.5" id="lblFormSubheading">
+              Enter Applicant Name, Application Date, Birth/Death, Direction, and Status
+            </p>
+          </div>
+          <span id="editModeBadge" class="hidden px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-bold text-xs">
+            Editing Record
+          </span>
+        </div>
+
+        <form id="applicationForm" class="p-6 space-y-6" autocomplete="off">
+          <input type="hidden" id="editingRecordId" value="">
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Automatic Monthly Sr. No. Indicator -->
+            <div class="md:col-span-2 flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+              <span class="text-xs sm:text-sm text-slate-600 font-medium" id="lblSrNoHint">
+                🔢 <strong>Auto Monthly Sr. No.:</strong> Continues sequentially across dates within the same month and automatically resets to <strong>1</strong> when a new month starts.
+              </span>
+              <span class="text-xs sm:text-sm font-bold text-slate-900 bg-amber-100 border border-amber-300 px-3 py-1 rounded-lg" id="lastSrNoBadge">
+                Next Sr. No.: #1
+              </span>
+              <input type="hidden" id="srNoInput" name="srNo" value="1">
+            </div>
+
+            <!-- 1. Name of Applicant -->
+            <div class="md:col-span-2 space-y-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <label for="applicantNameInput" class="block text-sm sm:text-base font-bold text-slate-800">
+                  1. Name of Applicant <span class="text-red-600">*</span>
+                </label>
+                <div class="flex flex-wrap items-center gap-1">
+                  <span class="text-xs text-slate-500 mr-1">Quick Prefix:</span>
+                  <button type="button" data-insert-text="Mr. " class="quick-word-btn px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-800 border border-slate-300 rounded text-xs font-bold transition">+ Mr.</button>
+                  <button type="button" data-insert-text="Mrs. " class="quick-word-btn px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-800 border border-slate-300 rounded text-xs font-bold transition">+ Mrs.</button>
+                  <button type="button" data-insert-text="Ms. " class="quick-word-btn px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-800 border border-slate-300 rounded text-xs font-bold transition">+ Ms.</button>
+                  <button type="button" data-insert-text="Late " class="quick-word-btn px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-800 border border-slate-300 rounded text-xs font-bold transition">+ Late</button>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                id="applicantNameInput"
+                name="applicantName"
+                required
+                placeholder="e.g. Ramesh Shankar Patil"
+                class="w-full px-4 py-3.5 text-base sm:text-lg rounded-xl border-2 border-slate-300 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20 outline-none transition font-medium text-slate-900 placeholder:text-slate-400"
+              >
+            </div>
+
+            <!-- 2. Application Date -->
+            <div>
+              <label for="applicationDateInput" class="block text-sm sm:text-base font-bold text-slate-800 mb-2">
+                2. Application Date <span class="text-red-600">*</span>
+              </label>
+              <div class="flex gap-2">
+                <input
+                  type="date"
+                  id="applicationDateInput"
+                  name="applicationDate"
+                  required
+                  class="w-full px-4 py-3 text-base rounded-xl border-2 border-slate-300 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20 outline-none transition font-semibold text-slate-900"
+                >
+                <button
+                  type="button"
+                  id="btnSetToday"
+                  class="shrink-0 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs sm:text-sm rounded-xl border border-slate-300 transition"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+
+            <!-- 3. Birth or Death Selection -->
+            <div>
+              <span class="block text-sm sm:text-base font-bold text-slate-800 mb-2">
+                3. Application Type: Birth or Death <span class="text-red-600">*</span>
+              </span>
+              <div class="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Birth or Death">
+                <label id="cardTypeBirth" class="cursor-pointer rounded-xl border-2 border-sky-600 bg-sky-50 px-4 py-3 flex items-center gap-3 transition select-none">
+                  <input type="radio" name="recordType" value="Birth" checked class="w-4 h-4 text-sky-600 focus:ring-sky-500">
+                  <div>
+                    <div class="font-bold text-sky-950 text-sm sm:text-base">👶 Birth</div>
+                    <div class="text-xs text-sky-700 font-medium">Birth Certificate</div>
+                  </div>
+                </label>
+
+                <label id="cardTypeDeath" class="cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 flex items-center gap-3 transition select-none">
+                  <input type="radio" name="recordType" value="Death" class="w-4 h-4 text-slate-800 focus:ring-slate-700">
+                  <div>
+                    <div class="font-bold text-slate-900 text-sm sm:text-base">🕊️ Death</div>
+                    <div class="text-xs text-slate-600 font-medium">Death Certificate</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Date of Birth (DOB) & Date of Death (DOD) Fields for Admin -->
+            <div id="dobFieldWrapper" class="p-3.5 rounded-xl border-2 border-sky-200 bg-sky-50/50 transition">
+              <div class="flex items-center justify-between mb-1.5">
+                <label for="dateOfBirthInput" class="block text-sm sm:text-base font-bold text-sky-950">
+                  👶 Date of Birth (DOB)
+                </label>
+                <span id="dobActiveTag" class="text-[11px] font-bold px-2 py-0.5 rounded bg-sky-200 text-sky-900">
+                  Primary for Birth
+                </span>
+              </div>
+              <input
+                type="date"
+                id="dateOfBirthInput"
+                name="dateOfBirth"
+                class="w-full px-3.5 py-2.5 text-base rounded-xl border border-slate-300 focus:border-sky-700 bg-white outline-none transition font-semibold text-slate-900"
+              >
+            </div>
+
+            <div id="dodFieldWrapper" class="p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50/50 transition">
+              <div class="flex items-center justify-between mb-1.5">
+                <label for="dateOfDeathInput" class="block text-sm sm:text-base font-bold text-slate-900">
+                  🕊️ Date of Death (DOD)
+                </label>
+                <span id="dodActiveTag" class="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                  For Death Files
+                </span>
+              </div>
+              <input
+                type="date"
+                id="dateOfDeathInput"
+                name="dateOfDeath"
+                class="w-full px-3.5 py-2.5 text-base rounded-xl border border-slate-300 focus:border-slate-900 bg-white outline-none transition font-semibold text-slate-900"
+              >
+            </div>
+
+            <!-- 4. Direction / Zone Options: A = Purv, B = Paschim, C = Uttar, D = Dakshin -->
+            <div class="md:col-span-2">
+              <span class="block text-sm sm:text-base font-bold text-slate-800 mb-2">
+                4. Select Direction (A - Purv, B - Paschim, C - Uttar, D - Dakshin) <span class="text-red-600">*</span>
+              </span>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Direction Options A B C D">
+                <label class="direction-radio-card cursor-pointer rounded-xl border-2 border-indigo-600 bg-indigo-50 px-3.5 py-3 flex items-center gap-3 transition select-none shadow-sm" data-dir-val="A">
+                  <input type="radio" name="directionZone" value="A" checked class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+                  <div>
+                    <div class="font-extrabold text-indigo-950 text-sm sm:text-base">A - Purv</div>
+                    <div class="text-xs text-indigo-700 font-medium">East Zone</div>
+                  </div>
+                </label>
+
+                <label class="direction-radio-card cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-3 flex items-center gap-3 transition select-none" data-dir-val="B">
+                  <input type="radio" name="directionZone" value="B" class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+                  <div>
+                    <div class="font-extrabold text-slate-900 text-sm sm:text-base">B - Paschim</div>
+                    <div class="text-xs text-slate-600 font-medium">West Zone</div>
+                  </div>
+                </label>
+
+                <label class="direction-radio-card cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-3 flex items-center gap-3 transition select-none" data-dir-val="C">
+                  <input type="radio" name="directionZone" value="C" class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+                  <div>
+                    <div class="font-extrabold text-slate-900 text-sm sm:text-base">C - Uttar</div>
+                    <div class="text-xs text-slate-600 font-medium">North Zone</div>
+                  </div>
+                </label>
+
+                <label class="direction-radio-card cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-3 flex items-center gap-3 transition select-none" data-dir-val="D">
+                  <input type="radio" name="directionZone" value="D" class="w-4 h-4 text-indigo-600 focus:ring-indigo-500">
+                  <div>
+                    <div class="font-extrabold text-slate-900 text-sm sm:text-base">D - Dakshin</div>
+                    <div class="text-xs text-slate-600 font-medium">South Zone</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 5. Initial File Status Selection (With requested 4 Color Options) -->
+            <div class="md:col-span-2">
+              <span class="block text-sm sm:text-base font-bold text-slate-800 mb-2">
+                5. Select File Status <span class="text-red-600">*</span>
+              </span>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <!-- Pending in Red -->
+                <label class="status-radio-card cursor-pointer rounded-xl p-3.5 border-2 border-red-600 status-pending shadow-sm flex items-center gap-3 transition select-none ring-4 ring-red-300" data-status-val="pending">
+                  <input type="radio" name="fileStatus" value="pending" checked class="w-4 h-4 accent-white">
+                  <div>
+                    <div class="font-extrabold text-sm sm:text-base">Pending</div>
+                    <div class="text-xs text-red-100">Red</div>
+                  </div>
+                </label>
+
+                <!-- Urgent in Dark Red -->
+                <label class="status-radio-card cursor-pointer rounded-xl p-3.5 border-2 border-red-950 status-urgent shadow-sm flex items-center gap-3 transition select-none opacity-80 hover:opacity-100" data-status-val="urgent">
+                  <input type="radio" name="fileStatus" value="urgent" class="w-4 h-4 accent-white">
+                  <div>
+                    <div class="font-extrabold text-sm sm:text-base">Urgent</div>
+                    <div class="text-xs text-red-200">Dark Red</div>
+                  </div>
+                </label>
+
+                <!-- Sign Remaining in Dark Yellow -->
+                <label class="status-radio-card cursor-pointer rounded-xl p-3.5 border-2 border-yellow-700 status-sign_remaining shadow-sm flex items-center gap-3 transition select-none opacity-80 hover:opacity-100" data-status-val="sign_remaining">
+                  <input type="radio" name="fileStatus" value="sign_remaining" class="w-4 h-4 accent-white">
+                  <div>
+                    <div class="font-extrabold text-sm sm:text-base">Sign Remaining</div>
+                    <div class="text-xs text-yellow-100">Dark Yellow</div>
+                  </div>
+                </label>
+
+                <!-- Sign in Green -->
+                <label class="status-radio-card cursor-pointer rounded-xl p-3.5 border-2 border-green-700 status-sign shadow-sm flex items-center gap-3 transition select-none opacity-80 hover:opacity-100" data-status-val="sign">
+                  <input type="radio" name="fileStatus" value="sign" class="w-4 h-4 accent-white">
+                  <div>
+                    <div class="font-extrabold text-sm sm:text-base">Sign</div>
+                    <div class="text-xs text-green-100">Green</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Optional Note / Inward Number -->
+            <div class="md:col-span-2">
+              <label for="remarksInput" class="block text-sm font-bold text-slate-700 mb-1.5">
+                Inward No. / Remarks (Optional)
+              </label>
+              <input
+                type="text"
+                id="remarksInput"
+                name="remarks"
+                placeholder="e.g. Inward No. 245 / 2 Copies Requested"
+                class="w-full px-4 py-2.5 text-sm sm:text-base rounded-xl border border-slate-300 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20 outline-none transition"
+              >
+            </div>
+          </div>
+
+          <!-- Form Buttons -->
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200">
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                id="btnSubmitForm"
+                class="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm sm:text-base shadow-md transition flex items-center gap-2"
+              >
+                <span>💾</span>
+                <span id="lblSubmitBtn">Save File &amp; View List</span>
+              </button>
+
+              <button
+                type="button"
+                id="btnSaveAndAddMore"
+                class="px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm sm:text-base shadow-sm transition"
+              >
+                + Save &amp; Add Another
+              </button>
+
+              <button
+                type="button"
+                id="btnCancelEdit"
+                class="hidden px-4 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-sm transition"
+              >
+                Cancel Edit
+              </button>
+            </div>
+
+            <button
+              type="button"
+              id="btnResetForm"
+              class="px-3.5 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-xs sm:text-sm font-medium transition"
+            >
+              Clear Form
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- SECTION 2: ALL STORED FILES & COLOR-CODED STATUS MANAGEMENT -->
+      <section id="sectionList" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden print-full">
+        <div class="bg-slate-900 text-white px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 no-print">
+          <div>
+            <h2 class="text-lg sm:text-xl font-bold flex items-center gap-2">
+              <span>📂</span>
+              <span id="lblListHeading">Section 2: All Stored Files &amp; Status Management</span>
+            </h2>
+            <p class="text-xs sm:text-sm text-slate-300 mt-0.5">
+              Update any file's status (Pending, Urgent, Sign, Sign Remaining) in one click or export to Excel
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btnQuickNewEntry"
+              class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm"
+            >
+              <span>➕</span>
+              <span>Add New File</span>
+            </button>
+            <button
+              type="button"
+              id="btnExportExcel"
+              class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm border border-emerald-500 shadow-sm transition flex items-center gap-1.5"
+            >
+              <span>📊</span>
+              <span>Export Excel (.xlsx)</span>
+            </button>
+            <button
+              type="button"
+              id="btnExportCsv"
+              class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-xs sm:text-sm border border-slate-700 transition"
+            >
+              ⬇️ Export CSV
+            </button>
+            <button
+              type="button"
+              id="btnPrintList"
+              class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-xs sm:text-sm border border-slate-700 transition"
+            >
+              🖨️ Print
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter & Search Bar -->
+        <div class="p-4 sm:p-5 bg-slate-50 border-b border-slate-200 space-y-3 no-print">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <!-- Search Input -->
+            <div class="md:col-span-4 relative">
+              <input
+                type="text"
+                id="searchInput"
+                placeholder="🔍 Search Applicant Name, Sr. No., or Remarks..."
+                class="w-full pl-4 pr-9 py-2.5 rounded-xl border border-slate-300 focus:border-slate-900 outline-none text-sm sm:text-base bg-white"
+              >
+              <button
+                type="button"
+                id="btnClearSearch"
+                title="Clear search"
+                class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-sm font-bold px-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Filter by Direction (A, B, C, D) -->
+            <div class="md:col-span-3">
+              <select id="filterDirectionSelect" class="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm sm:text-base font-medium text-slate-800 focus:border-slate-900 outline-none">
+                <option value="ALL">🧭 All Directions (A, B, C, D)</option>
+                <option value="A">A - Purv (East)</option>
+                <option value="B">B - Paschim (West)</option>
+                <option value="C">C - Uttar (North)</option>
+                <option value="D">D - Dakshin (South)</option>
+              </select>
+            </div>
+
+            <!-- Filter by Birth / Death -->
+            <div class="md:col-span-2">
+              <select id="filterTypeSelect" class="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm sm:text-base font-medium text-slate-800 focus:border-slate-900 outline-none">
+                <option value="ALL">All Types</option>
+                <option value="Birth">👶 Birth Only</option>
+                <option value="Death">🕊️ Death Only</option>
+              </select>
+            </div>
+
+            <!-- Filter by Status -->
+            <div class="md:col-span-3">
+              <select id="filterStatusSelect" class="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm sm:text-base font-medium text-slate-800 focus:border-slate-900 outline-none">
+                <option value="ALL">All Statuses</option>
+                <option value="pending">🔴 Pending (Red)</option>
+                <option value="urgent">🩸 Urgent (Dark Red)</option>
+                <option value="sign_remaining">🟨 Sign Remaining (Dark Yellow)</option>
+                <option value="sign">🟢 Sign (Green)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Print-Only Header -->
+        <div class="hidden print:block p-4 border-b border-slate-300">
+          <h2 class="text-xl font-bold">Birth &amp; Death Application File Register</h2>
+          <p class="text-sm text-slate-600" id="printTimestamp"></p>
+        </div>
+
+        <!-- Records Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b border-slate-200 text-xs sm:text-sm font-bold">
+                <th class="py-3.5 px-4 w-20">Sr. No.</th>
+                <th class="py-3.5 px-4">1. Name of Applicant</th>
+                <th class="py-3.5 px-4">2. Application Date</th>
+                <th class="py-3.5 px-4">3. Birth or Death</th>
+                <th class="py-3.5 px-4">Date of Birth / Death</th>
+                <th class="py-3.5 px-4">4. Direction (A/B/C/D)</th>
+                <th class="py-3.5 px-4">Current Status</th>
+                <th class="py-3.5 px-4 no-print">Change Status Option</th>
+                <th class="py-3.5 px-4 text-right no-print">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="recordsTableBody" class="divide-y divide-slate-200 text-sm sm:text-base">
+              <!-- Populated dynamically via JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyStateBox" class="hidden p-10 text-center space-y-3">
+          <div class="text-4xl">📂</div>
+          <h3 class="text-lg font-bold text-slate-800">No Application Files Found</h3>
+          <p class="text-sm text-slate-500 max-w-md mx-auto">
+            No files match the current filter, or no files have been added yet. Click below to add a new file.
+          </p>
+          <div class="flex justify-center gap-3 pt-2 no-print">
+            <button type="button" id="btnEmptyResetFilter" class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-sm transition">
+              Show All Files
+            </button>
+            <button type="button" id="btnEmptyAddFirst" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm transition">
+              + Add New File
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Cross-Device Real-Time Sync Modal (Admin Device A <-> Viewer Device B) -->
+  <div id="syncModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 no-print overflow-y-auto">
+    <div class="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 my-auto">
+      <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📡</span>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold">Real-Time Multi-Device Sync</h3>
+            <p class="text-xs text-slate-300">Admin Device A ↔ Viewer Device B Instant Live Updates</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseSyncModal" class="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs sm:text-sm font-extrabold text-emerald-950" id="syncModalStateTitle">🟢 Live Cloud Relay Connected</span>
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900" id="syncLastTimestampBadge">Synced</span>
+          </div>
+          <p class="text-xs text-emerald-800 leading-relaxed">
+            All devices using the same <strong>Office Sync Room Code</strong> below share data in real time. When Admin updates a file on <strong>Device A</strong>, <strong>Device B (Viewer)</strong> automatically receives the update within 1 second.
+          </p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label for="syncRoomCodeInput" class="block text-xs sm:text-sm font-bold text-slate-800">
+            1. Shared Office Sync Room Code (Same on Device A &amp; Device B):
+          </label>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              id="syncRoomCodeInput"
+              value="KGL2126-OFFICE"
+              placeholder="e.g. KGL2126-OFFICE"
+              class="w-full px-3.5 py-2 text-sm font-extrabold uppercase tracking-wider rounded-xl border-2 border-slate-300 focus:border-slate-900 outline-none text-slate-900"
+            >
+            <button
+              type="button"
+              id="btnSaveSyncRoom"
+              class="shrink-0 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition"
+            >
+              Connect Room
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Default is <code>KGL2126-OFFICE</code> on all devices, so both Device A and Device B connect to each other automatically.
+          </p>
+        </div>
+
+        <div class="space-y-1.5 pt-2 border-t border-slate-200">
+          <label for="firebaseDbUrlInput" class="block text-xs sm:text-sm font-bold text-slate-800">
+            2. Optional Cloud Database URL (Firebase Realtime DB / REST JSON URL):
+          </label>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              id="firebaseDbUrlInput"
+              placeholder="Optional: https://your-project-default-rtdb.firebaseio.com"
+              class="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:border-slate-900 outline-none text-slate-800"
+            >
+            <button
+              type="button"
+              id="btnSaveFirebaseUrl"
+              class="shrink-0 px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition"
+            >
+              Save DB
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Leave blank to use the built-in real-time WebSocket relay + Cloud KV store automatically.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            id="btnForceSyncPush"
+            class="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-sm transition"
+          >
+            ⚡ Push Data to All Devices
+          </button>
+          <button
+            type="button"
+            id="btnForceSyncPull"
+            class="flex-1 py-2.5 px-4 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs sm:text-sm shadow-sm transition"
+          >
+            📥 Pull Latest from Cloud
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Public QR Code Modal for General People -->
+  <div id="qrCodeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 no-print overflow-y-auto">
+    <div class="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 my-auto">
+      <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📱</span>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold">Public Viewer QR Code</h3>
+            <p class="text-xs text-slate-300">Works via Instant Phone Scan or Hosted Website Link</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseQrModal" class="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
+      </div>
+
+      <div class="p-5 sm:p-6 space-y-4 text-center">
+        <!-- QR Mode Selector Tabs -->
+        <div class="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200 text-xs font-bold">
+          <button type="button" id="btnQrModeStatus" class="py-2 px-3 rounded-lg bg-slate-900 text-white shadow-sm transition">
+            📲 1. Instant Status Card (No Hosting Needed)
+          </button>
+          <button type="button" id="btnQrModeUrl" class="py-2 px-3 rounded-lg bg-white text-slate-700 hover:bg-slate-200 transition">
+            🌐 2. Website Link Mode (After Hosting)
+          </button>
+        </div>
+
+        <div class="bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl p-4 flex flex-col items-center justify-center space-y-2.5">
+          <div id="modalQrCodeContainer" class="w-48 h-48 bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-center">
+            <!-- Populated by JS -->
+          </div>
+          <div class="space-y-0.5">
+            <div id="modalQrTitle" class="text-sm font-extrabold text-slate-900">Scan with Phone Camera / Google Lens</div>
+            <div id="modalQrSubtitle" class="text-xs text-slate-600 max-w-sm mx-auto">
+              Displays the live Birth &amp; Death File Statuses directly on the citizen's phone screen!
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode 1 Panel: Live Status Text Preview -->
+        <div id="qrStatusModePanel" class="text-left bg-emerald-50/80 border border-emerald-200 rounded-xl p-3.5 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-emerald-950">✅ Why this works immediately without a website:</span>
+            <span id="qrEncodedCountBadge" class="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">0 Files</span>
+          </div>
+          <p class="text-xs text-emerald-800 leading-relaxed">
+            Because this app is running inside a private preview window (not yet uploaded to a public <code>https://</code> domain), this QR code encodes your <strong>live file status list directly inside the QR image</strong>. Scan it now with your phone camera to see the statuses pop up on your phone!
+          </p>
+        </div>
+
+        <!-- Mode 2 Panel: Website URL & 1-Click Publishable HTML Download -->
+        <div id="qrUrlModePanel" class="hidden text-left space-y-3 bg-sky-50/70 border border-sky-200 rounded-xl p-3.5">
+          <div class="text-xs text-sky-950 space-y-1">
+            <div class="font-extrabold">🌐 How to make the QR open the full interactive website on any phone:</div>
+            <ol class="list-decimal list-inside space-y-0.5 text-sky-900">
+              <li>Click <strong>Download Standalone Website (HTML)</strong> below.</li>
+              <li>Upload that HTML file for free at <strong>app.netlify.com/drop</strong> or <strong>tiiny.host</strong> to get your real <code>https://...</code> website link.</li>
+              <li>Paste your real <code>https://</code> link below and click <strong>Update QR</strong>.</li>
+            </ol>
+          </div>
+
+          <button
+            type="button"
+            id="btnDownloadStandaloneSite"
+            class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm transition flex items-center justify-center gap-1.5"
+          >
+            <span>🌐</span>
+            <span>Download Standalone Website File (with Current Data)</span>
+          </button>
+
+          <div class="space-y-1 pt-1">
+            <label for="qrUrlInput" class="block text-xs font-bold text-slate-700">
+              Your Hosted Public Website URL (must be a real https:// link):
+            </label>
+            <div class="flex gap-2">
+              <input
+                type="text"
+                id="qrUrlInput"
+                class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:border-slate-900 bg-white outline-none text-slate-800"
+                placeholder="Paste your hosted https:// link here..."
+              >
+              <button
+                type="button"
+                id="btnUpdateQrUrl"
+                class="shrink-0 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition"
+              >
+                Update QR
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+          <button
+            type="button"
+            id="btnDownloadQr"
+            class="flex-1 px-4 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs sm:text-sm shadow-sm transition"
+          >
+            ⬇️ Download QR (PNG)
+          </button>
+          <button
+            type="button"
+            id="btnPrintQrPoster"
+            class="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-sm transition"
+          >
+            🖨️ Print QR Notice
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Login Modal (Supports both Admin accounts) -->
+  <div id="adminLoginModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-200">
+      <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">🔐</span>
+          <div>
+            <h3 class="text-base sm:text-lg font-bold">Administration Login</h3>
+            <p class="text-xs text-slate-300">Sign in to add files and update application statuses</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseAdminModal" class="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
+      </div>
+
+      <form id="adminLoginForm" class="p-6 space-y-4" autocomplete="off">
+        <div id="adminLoginError" class="hidden p-3 rounded-xl bg-red-50 border border-red-300 text-red-800 text-xs sm:text-sm font-semibold">
+          ❌ Invalid Admin Account Email or Password! Please try again.
+        </div>
+
+        <div>
+          <label for="adminEmailInput" class="block text-xs sm:text-sm font-bold text-slate-800 mb-1">
+            Admin Account Email <span class="text-red-600">*</span>
+          </label>
+          <input
+            type="email"
+            id="adminEmailInput"
+            required
+            placeholder="Enter admin email..."
+            class="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 focus:border-slate-900 outline-none text-sm sm:text-base font-medium text-slate-900"
+          >
+        </div>
+
+        <div>
+          <label for="adminPasswordInput" class="block text-xs sm:text-sm font-bold text-slate-800 mb-1">
+            Password <span class="text-red-600">*</span>
+          </label>
+          <div class="relative">
+            <input
+              type="password"
+              id="adminPasswordInput"
+              required
+              placeholder="Enter password..."
+              class="w-full px-3.5 py-2.5 pr-16 rounded-xl border-2 border-slate-300 focus:border-slate-900 outline-none text-sm sm:text-base font-medium text-slate-900"
+            >
+            <button
+              type="button"
+              id="btnToggleAdminPwd"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-600 hover:text-slate-900 px-2 py-1 rounded bg-slate-100"
+            >
+              Show
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            id="btnCancelAdminLogin"
+            class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            id="btnSubmitAdminLogin"
+            class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-md transition"
+          >
+            🔓 Login as Admin
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="deleteModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 no-print">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-red-100 text-red-700 flex items-center justify-center font-bold text-lg">
+          !
+        </div>
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">Delete Application File Record?</h3>
+          <p class="text-xs text-slate-500">This action will remove the record from the list.</p>
+        </div>
+      </div>
+      <p id="deleteModalDesc" class="text-sm text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium"></p>
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <button type="button" id="btnCancelDelete" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-sm transition">
+          Cancel
+        </button>
+        <button type="button" id="btnConfirmDelete" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition">
+          Yes, Delete
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastBanner" class="fixed bottom-5 right-5 z-50 hidden items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 text-sm font-semibold no-print">
+    <span id="toastIcon">✅</span>
+    <span id="toastText">Saved successfully!</span>
+  </div>
+
+  <script>
+    (function () {
+      const STORAGE_KEY = 'marathi_birth_death_files_v3';
+
+      // Direction Metadata: A = Purv, B = Paschim, C = Uttar, D = Dakshin
+      const DIRECTION_META = {
+        A: {
+          code: 'A',
+          label: 'A - Purv',
+          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300'
+        },
+        B: {
+          code: 'B',
+          label: 'B - Paschim',
+          badgeClass: 'bg-purple-100 text-purple-900 border-purple-300'
+        },
+        C: {
+          code: 'C',
+          label: 'C - Uttar',
+          badgeClass: 'bg-teal-100 text-teal-900 border-teal-300'
+        },
+        D: {
+          code: 'D',
+          label: 'D - Dakshin',
+          badgeClass: 'bg-orange-100 text-orange-900 border-orange-300'
+        }
+      };
+
+      // Status Metadata with exact user-specified color scheme:
+      // Pending = Red, Urgent = Dark Red, Sign = Green, Sign Remaining = Dark Yellow
+      const STATUS_META = {
+        pending: {
+          key: 'pending',
+          label: 'Pending',
+          badgeClass: 'status-pending',
+          rowClass: 'status-pending-row'
+        },
+        urgent: {
+          key: 'urgent',
+          label: 'Urgent',
+          badgeClass: 'status-urgent',
+          rowClass: 'status-urgent-row'
+        },
+        sign: {
+          key: 'sign',
+          label: 'Sign',
+          badgeClass: 'status-sign',
+          rowClass: 'status-sign-row'
+        },
+        sign_remaining: {
+          key: 'sign_remaining',
+          label: 'Sign Remaining',
+          badgeClass: 'status-sign_remaining',
+          rowClass: 'status-sign_remaining-row'
+        }
+      };
+
+      // Two Authorized Administration Accounts requested by the user:
+      // 1) aryanbhavsar194@gmail.com | KGL2126
+      // 2) govindalokhandesap@gmail.com | KGL@2126
+      const ADMIN_ACCOUNTS = {
+        'aryanbhavsar194@gmail.com': 'KGL2126',
+        'govindalokhandesap@gmail.com': 'KGL@2126'
+      };
+      const ADMIN_SESSION_KEY = 'file_mgr_admin_logged_in_email_v2';
+
+      // State
+      let records = [];
+      let isAdminAuthenticated = false;
+      let currentAdminEmail = '';
+      let pendingAdminTargetView = 'split';
+      let currentView = 'viewer'; // 'viewer' (Public), or 'entry' | 'list' | 'split' (Admin)
+      let pendingDeleteId = null;
+      let activeInputEl = null;
+      let toastTimer = null;
+
+      // DOM Elements
+      const tabBtnViewer = document.getElementById('tabBtnViewer');
+      const tabBtnEntry = document.getElementById('tabBtnEntry');
+      const tabBtnList = document.getElementById('tabBtnList');
+      const tabBtnSplit = document.getElementById('tabBtnSplit');
+      const sectionViewer = document.getElementById('sectionViewer');
+      const sectionEntry = document.getElementById('sectionEntry');
+      const sectionList = document.getElementById('sectionList');
+      const sectionsGrid = document.getElementById('sectionsGrid');
+      const navTotalBadge = document.getElementById('navTotalBadge');
+
+      const applicationForm = document.getElementById('applicationForm');
+      const editingRecordId = document.getElementById('editingRecordId');
+      const srNoInput = document.getElementById('srNoInput');
+      const lastSrNoBadge = document.getElementById('lastSrNoBadge');
+      const applicantNameInput = document.getElementById('applicantNameInput');
+      const applicationDateInput = document.getElementById('applicationDateInput');
+      const dateOfBirthInput = document.getElementById('dateOfBirthInput');
+      const dateOfDeathInput = document.getElementById('dateOfDeathInput');
+      const dobFieldWrapper = document.getElementById('dobFieldWrapper');
+      const dodFieldWrapper = document.getElementById('dodFieldWrapper');
+      const remarksInput = document.getElementById('remarksInput');
+      const btnSetToday = document.getElementById('btnSetToday');
+      const lblSubmitBtn = document.getElementById('lblSubmitBtn');
+      const btnSaveAndAddMore = document.getElementById('btnSaveAndAddMore');
+      const btnCancelEdit = document.getElementById('btnCancelEdit');
+      const btnResetForm = document.getElementById('btnResetForm');
+      const editModeBadge = document.getElementById('editModeBadge');
+
+      const cardTypeBirth = document.getElementById('cardTypeBirth');
+      const cardTypeDeath = document.getElementById('cardTypeDeath');
+      const directionRadioCards = document.querySelectorAll('.direction-radio-card');
+      const statusRadioCards = document.querySelectorAll('.status-radio-card');
+
+      const searchInput = document.getElementById('searchInput');
+      const btnClearSearch = document.getElementById('btnClearSearch');
+      const filterDirectionSelect = document.getElementById('filterDirectionSelect');
+      const filterTypeSelect = document.getElementById('filterTypeSelect');
+      const filterStatusSelect = document.getElementById('filterStatusSelect');
+      const recordsTableBody = document.getElementById('recordsTableBody');
+      const emptyStateBox = document.getElementById('emptyStateBox');
+
+      const statTotal = document.getElementById('statTotal');
+      const statBirthDeathSplit = document.getElementById('statBirthDeathSplit');
+      const statPending = document.getElementById('statPending');
+      const statUrgent = document.getElementById('statUrgent');
+      const statSignRem = document.getElementById('statSignRem');
+      const statSign = document.getElementById('statSign');
+
+      const btnQuickNewEntry = document.getElementById('btnQuickNewEntry');
+      const btnExportExcel = document.getElementById('btnExportExcel');
+      const btnExportCsv = document.getElementById('btnExportCsv');
+      const btnPrintList = document.getElementById('btnPrintList');
+      const btnEmptyResetFilter = document.getElementById('btnEmptyResetFilter');
+      const btnEmptyAddFirst = document.getElementById('btnEmptyAddFirst');
+
+      const deleteModal = document.getElementById('deleteModal');
+      const deleteModalDesc = document.getElementById('deleteModalDesc');
+      const btnCancelDelete = document.getElementById('btnCancelDelete');
+      const btnConfirmDelete = document.getElementById('btnConfirmDelete');
+
+      const toastBanner = document.getElementById('toastBanner');
+      const toastIcon = document.getElementById('toastIcon');
+      const toastText = document.getElementById('toastText');
+
+      // Monthly Continuous Serial Number helpers:
+      // - Does NOT reset when changing date within the same month
+      // - Automatically RESETS TO 1 when the month changes
+      function getYearMonthKey(isoDate) {
+        const d = (isoDate && isoDate.length >= 7) ? isoDate : getTodayIso();
+        return d.slice(0, 7); // "YYYY-MM"
+      }
+
+      function getHighestSrNoForMonth(isoDate) {
+        const ym = getYearMonthKey(isoDate);
+        let maxSr = 0;
+        records.forEach(function (r) {
+          if (getYearMonthKey(r.applicationDate) === ym) {
+            const n = parseInt(r.srNo, 10);
+            if (!isNaN(n) && n > maxSr) {
+              maxSr = n;
+            }
+          }
+        });
+        return maxSr;
+      }
+
+      function getNextContinuousSrNo(isoDate) {
+        return getHighestSrNoForMonth(isoDate) + 1;
+      }
+
+      // Safe localStorage helpers
+      function loadRecords() {
+        try {
+          localStorage.removeItem('marathi_birth_death_files_v1');
+          localStorage.removeItem('marathi_last_sr_no_counter_v1');
+          localStorage.removeItem('marathi_last_sr_no_counter_v2');
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              const monthRunning = {};
+              const reversed = parsed.slice().reverse();
+              reversed.forEach(function (r) {
+                const ym = getYearMonthKey(r.applicationDate);
+                const cur = monthRunning[ym] || 0;
+                if (!r.srNo || isNaN(parseInt(r.srNo, 10))) {
+                  monthRunning[ym] = cur + 1;
+                  r.srNo = monthRunning[ym];
+                } else {
+                  monthRunning[ym] = Math.max(cur, parseInt(r.srNo, 10));
+                }
+                if (!r.direction || !DIRECTION_META[r.direction]) {
+                  r.direction = 'A';
+                }
+              });
+              records = parsed;
+              return;
+            }
+          }
+        } catch (err) {
+          // Fallback to empty array
+        }
+        records = [];
+        localLastModified = 0;
+      }
+
+      // ============================================================================
+      // REAL-TIME MULTI-DEVICE SYNC ENGINE (Device A Admin <-> Device B Viewer)
+      // Uses:
+      // 1) WebSocket MQTT Retained Pub/Sub (wss://broker.emqx.io:8084/mqtt & HiveMQ failover)
+      // 2) Optional Firebase Realtime Database REST Sync
+      // 3) Cross-tab BroadcastChannel & storage event sync
+      // ============================================================================
+      const SYNC_ROOM_KEY = 'file_mgr_sync_room_code_v1';
+      const FIREBASE_URL_KEY = 'file_mgr_firebase_db_url_v1';
+      const LAST_MODIFIED_KEY = 'file_mgr_last_modified_ts_v1';
+
+      let syncRoomCode = 'KGL2126-OFFICE';
+      let customFirebaseUrl = '';
+      let localLastModified = 0;
+      let mqttClient = null;
+      let currentBrokerIndex = 0;
+      let broadcastChannel = null;
+      let hasPerformedViewerSearch = false;
+
+      const MQTT_BROKERS = [
+        'wss://mqtt.eclipseprojects.io:443/mqtt',
+        'wss://broker.emqx.io:8084/mqtt',
+        'wss://broker.hivemq.com:8884/mqtt',
+        'wss://test.mosquitto.org:8081/mqtt'
+      ];
+
+      function getCleanRoomTopic() {
+        const clean = (syncRoomCode || 'KGL2126-OFFICE').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+        return 'bdsync_akola_v2_' + (clean || 'KGL2126-OFFICE');
+      }
+
+      // HTTPS Port-443 Cloud Cache & Event Stream (ntfy.sh JSON API)
+      // Works through every mobile carrier & firewall where WebSocket ports 8084/8884 are blocked,
+      // and caches the latest state in the cloud so Device B gets the files even if Device A is closed!
+      let ntfyEventSource = null;
+      let httpPollTimer = null;
+
+      function getHttpsCloudTopicUrl() {
+        return 'https://ntfy.sh/' + getCleanRoomTopic();
+      }
+
+      function updateSyncUI(state, detailText) {
+        const dot = document.getElementById('syncStatusDot');
+        const headerTxt = document.getElementById('syncStatusHeaderText');
+        const modalTitle = document.getElementById('syncModalStateTitle');
+        const badge = document.getElementById('syncLastTimestampBadge');
+        const viewerTotalBadge = document.getElementById('viewerTotalFilesSyncedBadge');
+
+        if (viewerTotalBadge) {
+          viewerTotalBadge.textContent = '🔒 Private Live Sync Ready';
+        }
+
+        if (state === 'connected') {
+          if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+          if (headerTxt) headerTxt.textContent = 'Live Sync: Online (' + syncRoomCode + ')';
+          if (modalTitle) modalTitle.textContent = '🟢 Live Multi-Device Sync Connected (' + syncRoomCode + ')';
+        } else if (state === 'syncing') {
+          if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+          if (headerTxt) headerTxt.textContent = 'Live Sync: Updating...';
+        } else {
+          if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+          if (headerTxt) headerTxt.textContent = 'Sync Room: ' + syncRoomCode;
+          if (modalTitle) modalTitle.textContent = '🟡 Connecting to Multi-Device Relay...';
+        }
+
+        if (badge && detailText) {
+          badge.textContent = detailText;
+        }
+      }
+
+      function applyIncomingRemoteRecords(remotePayload, sourceLabel) {
+        if (!remotePayload || !Array.isArray(remotePayload.records)) return;
+        const remoteTs = parseInt(remotePayload.updatedAt, 10) || 0;
+        // CRITICAL FIX: If this device currently has 0 records and the incoming cloud payload has records,
+        // ALWAYS accept the cloud records regardless of local initialization timestamp!
+        if (records.length > 0 && remoteTs > 0 && remoteTs < localLastModified && sourceLabel !== 'manual') {
+          return; // Ignore older state only if we already have newer local data
+        }
+
+        const currentJson = JSON.stringify(records);
+        const incomingJson = JSON.stringify(remotePayload.records);
+        localLastModified = Math.max(localLastModified, remoteTs || Date.now());
+
+        try {
+          localStorage.setItem(STORAGE_KEY, incomingJson);
+          localStorage.setItem(LAST_MODIFIED_KEY, String(localLastModified));
+        } catch (e) {}
+
+        if (currentJson !== incomingJson) {
+          records = remotePayload.records;
+          renderAll();
+          // If a citizen on Device B has already verified their own file, refresh ONLY their verified file live!
+          if (currentView === 'viewer' && hasPerformedViewerSearch) {
+            executePublicViewerSearch(true);
+          }
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          updateSyncUI('connected', 'Updated ' + timeStr);
+          const viewerBanner = document.getElementById('viewerLiveSyncBanner');
+          if (viewerBanner) {
+            viewerBanner.textContent = '✅ Live Update Received at ' + timeStr + ' (' + records.length + ' total files in system).';
+          }
+          if (sourceLabel === 'live-push') {
+            showToast('Live update received from Admin device!', '📡');
+          }
+        } else {
+          updateSyncUI('connected', 'Up to date');
+        }
+      }
+
+      function pushRecordsToCloud(isManual) {
+        const payload = {
+          room: syncRoomCode,
+          updatedAt: localLastModified || Date.now(),
+          records: records
+        };
+        const jsonStr = JSON.stringify(payload);
+
+        // 1. BroadcastChannel for same-device tabs
+        if (broadcastChannel) {
+          try { broadcastChannel.postMessage(payload); } catch (e) {}
+        }
+
+        // 2. HTTPS Port-443 Cloud Relay (ntfy.sh cached JSON pub/sub) - works on all phones & networks!
+        fetch(getHttpsCloudTopicUrl(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+            'Cache': 'yes'
+          },
+          body: jsonStr
+        }).then(function (res) {
+          if (res && res.ok) {
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            updateSyncUI('connected', 'Cloud Synced ' + timeStr);
+          }
+        }).catch(function () {});
+
+        // 3. MQTT over WebSockets with retain:true
+        if (mqttClient && mqttClient.connected) {
+          try {
+            mqttClient.publish(getCleanRoomTopic() + '/state', jsonStr, { qos: 1, retain: true });
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            updateSyncUI('connected', 'Pushed ' + timeStr);
+          } catch (e) {}
+        }
+
+        // 4. Optional Firebase Realtime DB or REST JSON endpoint
+        if (customFirebaseUrl) {
+          const endpoint = customFirebaseUrl.replace(/\/+$/, '') + '/birth_death_files_' + encodeURIComponent(syncRoomCode) + '.json';
+          fetch(endpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: jsonStr
+          }).then(function () {
+            if (isManual) showToast('Synced to Cloud Database!', '☁️');
+          }).catch(function () {});
+        }
+
+        if (isManual) {
+          showToast('Pushed ' + records.length + ' files to Cloud for all devices!', '⚡');
+        }
+      }
+
+      function pullRecordsFromCloud(isManual) {
+        updateSyncUI('syncing', 'Checking...');
+
+        // 1. Pull latest cached state over standard HTTPS Port 443 (ntfy.sh JSON history)
+        fetch(getHttpsCloudTopicUrl() + '/json?poll=1&since=24h')
+          .then(function (res) { return res.text(); })
+          .then(function (text) {
+            if (!text) return;
+            const lines = text.trim().split('\n');
+            let latestValid = null;
+            for (let i = 0; i < lines.length; i++) {
+              try {
+                const evt = JSON.parse(lines[i]);
+                if (evt && evt.event === 'message' && evt.message) {
+                  const inner = JSON.parse(evt.message);
+                  if (inner && Array.isArray(inner.records)) {
+                    if (!latestValid || (inner.updatedAt || 0) >= (latestValid.updatedAt || 0)) {
+                      latestValid = inner;
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+            if (latestValid) {
+              applyIncomingRemoteRecords(latestValid, isManual ? 'manual' : 'auto');
+              if (isManual) showToast('Synced ' + latestValid.records.length + ' files from Cloud!', '📥');
+            } else {
+              updateSyncUI('connected', 'Ready');
+            }
+          })
+          .catch(function () {});
+
+        // 2. Also ask any active MQTT peer or retained broker topic
+        if (mqttClient && mqttClient.connected) {
+          try {
+            mqttClient.subscribe(getCleanRoomTopic() + '/state', { qos: 1 });
+            mqttClient.publish(getCleanRoomTopic() + '/request', JSON.stringify({ ts: Date.now() }), { qos: 0, retain: false });
+          } catch (e) {}
+        }
+
+        // 3. Optional Firebase endpoint
+        if (customFirebaseUrl) {
+          const endpoint = customFirebaseUrl.replace(/\/+$/, '') + '/birth_death_files_' + encodeURIComponent(syncRoomCode) + '.json';
+          fetch(endpoint)
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+              if (data && Array.isArray(data.records)) {
+                applyIncomingRemoteRecords(data, isManual ? 'manual' : 'auto');
+                if (isManual) showToast('Pulled latest files from Cloud Database!', '📥');
+              }
+            })
+            .catch(function () {});
+        }
+      }
+
+      function connectHttpsEventStream() {
+        if (ntfyEventSource) {
+          try { ntfyEventSource.close(); } catch (e) {}
+        }
+        try {
+          if (typeof EventSource !== 'undefined') {
+            ntfyEventSource = new EventSource(getHttpsCloudTopicUrl() + '/sse');
+            ntfyEventSource.onopen = function () {
+              updateSyncUI('connected', 'Live HTTPS');
+            };
+            ntfyEventSource.onmessage = function (ev) {
+              if (!ev || !ev.data) return;
+              try {
+                const evt = JSON.parse(ev.data);
+                const msgStr = (evt && evt.message) ? evt.message : ev.data;
+                const inner = JSON.parse(msgStr);
+                if (inner && Array.isArray(inner.records)) {
+                  applyIncomingRemoteRecords(inner, 'live-push');
+                }
+              } catch (e) {}
+            };
+          }
+        } catch (e) {}
+
+        // Also run a lightweight background poll every 5 seconds so even if SSE/WebSockets are throttled on mobile browsers, Device B always stays in sync!
+        if (httpPollTimer) clearInterval(httpPollTimer);
+        httpPollTimer = setInterval(function () {
+          pullRecordsFromCloud(false);
+        }, 5000);
+      }
+
+      function initRealtimeSyncEngine() {
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const roomParam = urlParams.get('room');
+          const savedRoom = localStorage.getItem(SYNC_ROOM_KEY);
+          if (roomParam) {
+            syncRoomCode = roomParam.trim().toUpperCase();
+            localStorage.setItem(SYNC_ROOM_KEY, syncRoomCode);
+          } else if (savedRoom) {
+            syncRoomCode = savedRoom;
+          }
+          const savedFb = localStorage.getItem(FIREBASE_URL_KEY);
+          if (savedFb) customFirebaseUrl = savedFb;
+          const savedTs = parseInt(localStorage.getItem(LAST_MODIFIED_KEY) || '0', 10);
+          if (!isNaN(savedTs)) localLastModified = savedTs;
+        } catch (e) {}
+
+        const roomInp = document.getElementById('syncRoomCodeInput');
+        if (roomInp) roomInp.value = syncRoomCode;
+        const fbInp = document.getElementById('firebaseDbUrlInput');
+        if (fbInp) fbInp.value = customFirebaseUrl;
+
+        // Cross-tab BroadcastChannel + storage event
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            broadcastChannel = new BroadcastChannel('bd_files_channel_' + syncRoomCode);
+            broadcastChannel.onmessage = function (ev) {
+              if (ev && ev.data) {
+                applyIncomingRemoteRecords(ev.data, 'live-push');
+              }
+            };
+          }
+        } catch (e) {}
+
+        window.addEventListener('storage', function (ev) {
+          if (ev.key === STORAGE_KEY && ev.newValue) {
+            try {
+              const parsed = JSON.parse(ev.newValue);
+              if (Array.isArray(parsed)) {
+                records = parsed;
+                renderAll();
+                if (currentView === 'viewer' && hasPerformedViewerSearch) {
+                  executePublicViewerSearch(true);
+                }
+              }
+            } catch (e) {}
+          }
+        });
+
+        // Start both HTTPS Port-443 Cloud Sync (ntfy SSE + polling) AND MQTT WebSocket Sync
+        pullRecordsFromCloud(false);
+        connectHttpsEventStream();
+        connectMqttBroker(0);
+        if (records.length > 0) {
+          pushRecordsToCloud(false);
+        }
+      }
+
+      function connectMqttBroker(brokerIdx) {
+        if (typeof mqtt === 'undefined' || !mqtt.connect) {
+          updateSyncUI('offline', 'Local Mode');
+          return;
+        }
+        if (mqttClient) {
+          try { mqttClient.end(true); } catch (e) {}
+        }
+        currentBrokerIndex = brokerIdx % MQTT_BROKERS.length;
+        const brokerUrl = MQTT_BROKERS[currentBrokerIndex];
+        updateSyncUI('connecting', 'Connecting...');
+
+        try {
+          mqttClient = mqtt.connect(brokerUrl, {
+            clientId: 'bd_app_' + Math.random().toString(16).slice(2, 10),
+            clean: true,
+            connectTimeout: 6000,
+            reconnectPeriod: 4000
+          });
+
+          mqttClient.on('connect', function () {
+            const baseTopic = getCleanRoomTopic();
+            updateSyncUI('connected', 'Live');
+            mqttClient.subscribe(baseTopic + '/state', { qos: 1 });
+            mqttClient.subscribe(baseTopic + '/request', { qos: 0 });
+            // If this device already has records, publish them as retained state so Viewer devices get them immediately
+            if (records.length > 0) {
+              pushRecordsToCloud(false);
+            } else {
+              // Request state from any online Admin device
+              mqttClient.publish(baseTopic + '/request', JSON.stringify({ ts: Date.now() }), { qos: 0, retain: false });
+            }
+          });
+
+          mqttClient.on('message', function (topic, messageBuffer) {
+            try {
+              const str = messageBuffer.toString();
+              const baseTopic = getCleanRoomTopic();
+              if (topic === baseTopic + '/state') {
+                const data = JSON.parse(str);
+                applyIncomingRemoteRecords(data, 'live-push');
+              } else if (topic === baseTopic + '/request') {
+                if (records.length > 0) {
+                  pushRecordsToCloud(false);
+                }
+              }
+            } catch (e) {}
+          });
+
+          mqttClient.on('error', function () {
+            // Failover to next public broker if current one is unreachable
+            setTimeout(function () {
+              if (!mqttClient || !mqttClient.connected) {
+                connectMqttBroker(currentBrokerIndex + 1);
+              }
+            }, 3500);
+          });
+        } catch (err) {
+          updateSyncUI('offline', 'Offline');
+        }
+      }
+
+      function saveRecords() {
+        localLastModified = Date.now();
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+          localStorage.setItem(LAST_MODIFIED_KEY, String(localLastModified));
+        } catch (err) {
+          // Ignore storage quota errors in sandboxed context
+        }
+        pushRecordsToCloud(false);
+      }
+
+      function getTodayIso() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+      }
+
+      // Convert YYYY-MM-DD to DD/MM/YYYY
+      function formatDateDisplay(isoDate) {
+        if (!isoDate) return '-';
+        const parts = isoDate.split('-');
+        if (parts.length !== 3) return isoDate;
+        return parts[2] + '/' + parts[1] + '/' + parts[0];
+      }
+
+      function showToast(message, icon) {
+        toastIcon.textContent = icon || '✅';
+        toastText.textContent = message;
+        toastBanner.classList.remove('hidden');
+        toastBanner.classList.add('flex');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          toastBanner.classList.add('hidden');
+          toastBanner.classList.remove('flex');
+        }, 3000);
+      }
+
+      function updateAdminHeaderUI() {
+        const btnOpenAdminLogin = document.getElementById('btnOpenAdminLogin');
+        const adminLoggedInBadge = document.getElementById('adminLoggedInBadge');
+        const activeAdminEmailText = document.getElementById('activeAdminEmailText');
+        if (isAdminAuthenticated) {
+          if (btnOpenAdminLogin) btnOpenAdminLogin.classList.add('hidden');
+          if (activeAdminEmailText) activeAdminEmailText.textContent = currentAdminEmail;
+          if (adminLoggedInBadge) {
+            adminLoggedInBadge.classList.remove('hidden');
+            adminLoggedInBadge.classList.add('inline-flex');
+          }
+        } else {
+          if (btnOpenAdminLogin) btnOpenAdminLogin.classList.remove('hidden');
+          if (adminLoggedInBadge) {
+            adminLoggedInBadge.classList.add('hidden');
+            adminLoggedInBadge.classList.remove('inline-flex');
+          }
+        }
+      }
+
+      function openAdminLoginModal(targetViewAfterLogin) {
+        pendingAdminTargetView = targetViewAfterLogin || (window.innerWidth >= 1024 ? 'split' : 'entry');
+        const modal = document.getElementById('adminLoginModal');
+        const errBox = document.getElementById('adminLoginError');
+        const emailInp = document.getElementById('adminEmailInput');
+        const passInp = document.getElementById('adminPasswordInput');
+        if (errBox) errBox.classList.add('hidden');
+        if (emailInp && !emailInp.value) emailInp.value = '';
+        if (passInp) passInp.value = '';
+        if (modal) {
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+        if (emailInp) emailInp.focus();
+      }
+
+      function closeAdminLoginModal() {
+        const modal = document.getElementById('adminLoginModal');
+        if (modal) {
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+        }
+      }
+
+      // View switcher: 'viewer' (Public Read-Only), or Admin modes: 'entry' (Section 1), 'list' (Section 2), 'split' (Both)
+      function setView(mode) {
+        if ((mode === 'entry' || mode === 'list' || mode === 'split') && !isAdminAuthenticated) {
+          openAdminLoginModal(mode);
+          return;
+        }
+
+        currentView = mode;
+        const adminSummaryCardsGrid = document.getElementById('adminSummaryCardsGrid');
+
+        const activeTabClass = 'px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-slate-900 text-white shadow';
+        const activeViewerTabClass = 'px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-sky-700 text-white shadow';
+        const inactiveTabClass = 'px-4 py-2.5 rounded-xl font-bold text-sm sm:text-base transition flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700';
+
+        if (mode === 'viewer') {
+          if (sectionViewer) sectionViewer.classList.remove('hidden');
+          if (adminSummaryCardsGrid) {
+            adminSummaryCardsGrid.classList.add('hidden');
+            adminSummaryCardsGrid.classList.remove('grid');
+          }
+          sectionEntry.classList.add('hidden');
+          sectionList.classList.add('hidden');
+          sectionsGrid.className = 'hidden grid-cols-1 gap-6';
+          if (tabBtnViewer) tabBtnViewer.className = activeViewerTabClass;
+          tabBtnEntry.className = inactiveTabClass;
+          tabBtnList.className = inactiveTabClass;
+          tabBtnSplit.className = 'hidden lg:inline-flex px-3.5 py-2.5 rounded-xl font-semibold text-sm transition items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700';
+          return;
+        }
+
+        if (sectionViewer) sectionViewer.classList.add('hidden');
+        if (adminSummaryCardsGrid) {
+          adminSummaryCardsGrid.classList.remove('hidden');
+          adminSummaryCardsGrid.classList.add('grid');
+        }
+        if (tabBtnViewer) tabBtnViewer.className = inactiveTabClass;
+
+        if (mode === 'entry') {
+          sectionEntry.classList.remove('hidden');
+          sectionList.classList.add('hidden');
+          sectionsGrid.className = 'grid grid-cols-1 gap-6';
+          tabBtnEntry.className = activeTabClass;
+          tabBtnList.className = inactiveTabClass;
+          tabBtnSplit.className = 'hidden lg:inline-flex px-3.5 py-2.5 rounded-xl font-semibold text-sm transition items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700';
+        } else if (mode === 'list') {
+          sectionEntry.classList.add('hidden');
+          sectionList.classList.remove('hidden');
+          sectionsGrid.className = 'grid grid-cols-1 gap-6';
+          tabBtnEntry.className = inactiveTabClass;
+          tabBtnList.className = activeTabClass;
+          tabBtnSplit.className = 'hidden lg:inline-flex px-3.5 py-2.5 rounded-xl font-semibold text-sm transition items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700';
+        } else if (mode === 'split') {
+          sectionEntry.classList.remove('hidden');
+          sectionList.classList.remove('hidden');
+          sectionsGrid.className = 'grid grid-cols-1 lg:grid-cols-12 gap-6 items-start';
+          sectionEntry.classList.add('lg:col-span-5');
+          sectionList.classList.add('lg:col-span-7');
+          tabBtnEntry.className = inactiveTabClass;
+          tabBtnList.className = inactiveTabClass;
+          tabBtnSplit.className = 'hidden lg:inline-flex px-3.5 py-2.5 rounded-xl font-bold text-sm transition items-center gap-1.5 bg-slate-900 text-white shadow';
+        }
+
+        if (mode !== 'split') {
+          sectionEntry.classList.remove('lg:col-span-5');
+          sectionList.classList.remove('lg:col-span-7');
+        }
+      }
+
+      // Highlight Birth/Death radio cards and emphasize DOB vs DOD box
+      function updateRecordTypeCardStyles() {
+        const selected = document.querySelector('input[name="recordType"]:checked');
+        const val = selected ? selected.value : 'Birth';
+        if (val === 'Birth') {
+          cardTypeBirth.className = 'cursor-pointer rounded-xl border-2 border-sky-600 bg-sky-50 px-4 py-3 flex items-center gap-3 transition select-none shadow-sm';
+          cardTypeDeath.className = 'cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 flex items-center gap-3 transition select-none';
+          if (dobFieldWrapper) dobFieldWrapper.className = 'p-3.5 rounded-xl border-2 border-sky-500 bg-sky-50/70 transition shadow-sm';
+          if (dodFieldWrapper) dodFieldWrapper.className = 'p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50/50 transition opacity-85';
+        } else {
+          cardTypeBirth.className = 'cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 flex items-center gap-3 transition select-none';
+          cardTypeDeath.className = 'cursor-pointer rounded-xl border-2 border-slate-800 bg-slate-100 px-4 py-3 flex items-center gap-3 transition select-none shadow-sm';
+          if (dobFieldWrapper) dobFieldWrapper.className = 'p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50/50 transition opacity-85';
+          if (dodFieldWrapper) dodFieldWrapper.className = 'p-3.5 rounded-xl border-2 border-slate-800 bg-slate-100/80 transition shadow-sm';
+        }
+      }
+
+      // Highlight Direction A/B/C/D radio cards
+      function updateDirectionCardStyles() {
+        const selected = document.querySelector('input[name="directionZone"]:checked');
+        const val = selected ? selected.value : 'A';
+        directionRadioCards.forEach(function (card) {
+          const cardDir = card.getAttribute('data-dir-val');
+          if (cardDir === val) {
+            card.className = 'direction-radio-card cursor-pointer rounded-xl border-2 border-indigo-600 bg-indigo-50 px-3.5 py-3 flex items-center gap-3 transition select-none shadow-sm ring-2 ring-indigo-500/20';
+          } else {
+            card.className = 'direction-radio-card cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-3 flex items-center gap-3 transition select-none';
+          }
+        });
+      }
+
+      // Highlight Status radio cards
+      function updateStatusCardStyles() {
+        const selected = document.querySelector('input[name="fileStatus"]:checked');
+        const val = selected ? selected.value : 'pending';
+        statusRadioCards.forEach(function (card) {
+          const cardStatus = card.getAttribute('data-status-val');
+          if (cardStatus === val) {
+            card.classList.remove('opacity-75', 'opacity-80');
+            card.classList.add('ring-4', 'ring-slate-900/25', 'scale-[1.01]');
+          } else {
+            card.classList.remove('ring-4', 'ring-slate-900/25', 'scale-[1.01]');
+            card.classList.add('opacity-80');
+          }
+        });
+      }
+
+      function refreshSrNoBadgeAndInput() {
+        const activeDate = applicationDateInput.value || getTodayIso();
+        const nextSr = getNextContinuousSrNo(activeDate);
+        lastSrNoBadge.textContent = 'Next Sr. No.: #' + nextSr;
+        if (!editingRecordId.value) {
+          srNoInput.value = String(nextSr);
+        }
+      }
+
+      // Reset Entry Form
+      function resetEntryForm() {
+        editingRecordId.value = '';
+        applicantNameInput.value = '';
+        applicationDateInput.value = getTodayIso();
+        if (dateOfBirthInput) dateOfBirthInput.value = '';
+        if (dateOfDeathInput) dateOfDeathInput.value = '';
+        remarksInput.value = '';
+        const birthRadio = document.querySelector('input[name="recordType"][value="Birth"]');
+        if (birthRadio) birthRadio.checked = true;
+        const dirARadio = document.querySelector('input[name="directionZone"][value="A"]');
+        if (dirARadio) dirARadio.checked = true;
+        const pendingRadio = document.querySelector('input[name="fileStatus"][value="pending"]');
+        if (pendingRadio) pendingRadio.checked = true;
+
+        editModeBadge.classList.add('hidden');
+        btnCancelEdit.classList.add('hidden');
+        btnSaveAndAddMore.classList.remove('hidden');
+        lblSubmitBtn.textContent = 'Save File & View List';
+
+        refreshSrNoBadgeAndInput();
+        updateRecordTypeCardStyles();
+        updateDirectionCardStyles();
+        updateStatusCardStyles();
+      }
+
+      // Save or Update Record from Form
+      function handleFormSave(stayOnEntryForm) {
+        const nameVal = applicantNameInput.value.trim();
+        const dateVal = applicationDateInput.value;
+        const dobVal = dateOfBirthInput ? dateOfBirthInput.value : '';
+        const dodVal = dateOfDeathInput ? dateOfDeathInput.value : '';
+        const typeEl = document.querySelector('input[name="recordType"]:checked');
+        const dirEl = document.querySelector('input[name="directionZone"]:checked');
+        const statusEl = document.querySelector('input[name="fileStatus"]:checked');
+        const remarksVal = remarksInput.value.trim();
+
+        if (!nameVal) {
+          applicantNameInput.focus();
+          showToast('Please enter the Applicant Name', '⚠️');
+          return;
+        }
+        if (!dateVal) {
+          applicationDateInput.focus();
+          showToast('Please select the Application Date', '⚠️');
+          return;
+        }
+
+        const existingId = editingRecordId.value;
+        let finalSrNo = getNextContinuousSrNo(dateVal);
+        if (existingId) {
+          const existingRec = records.find(function (r) { return r.id === existingId; });
+          if (existingRec && getYearMonthKey(existingRec.applicationDate) === getYearMonthKey(dateVal)) {
+            finalSrNo = existingRec.srNo || finalSrNo;
+          }
+        }
+        const recordType = typeEl ? typeEl.value : 'Birth';
+        const direction = dirEl ? dirEl.value : 'A';
+        const status = statusEl ? statusEl.value : 'pending';
+
+        if (existingId) {
+          const idx = records.findIndex(function (r) { return r.id === existingId; });
+          if (idx !== -1) {
+            records[idx] = {
+              id: existingId,
+              srNo: finalSrNo,
+              applicantName: nameVal,
+              applicationDate: dateVal,
+              dateOfBirth: dobVal,
+              dateOfDeath: dodVal,
+              recordType: recordType,
+              direction: direction,
+              status: status,
+              remarks: remarksVal
+            };
+          }
+          showToast('File #' + finalSrNo + ' updated successfully!', '✅');
+        } else {
+          const newRecord = {
+            id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            srNo: finalSrNo,
+            applicantName: nameVal,
+            applicationDate: dateVal,
+            dateOfBirth: dobVal,
+            dateOfDeath: dodVal,
+            recordType: recordType,
+            direction: direction,
+            status: status,
+            remarks: remarksVal
+          };
+          records.unshift(newRecord);
+          showToast('File #' + finalSrNo + ' saved! Next Sr. No. for this month is #' + getNextContinuousSrNo(dateVal) + '.', '💾');
+        }
+
+        saveRecords();
+        resetEntryForm();
+        renderAll();
+
+        if (stayOnEntryForm) {
+          applicantNameInput.focus();
+        } else if (currentView === 'entry') {
+          setView('list');
+        }
+      }
+
+      // Populate Form for Editing
+      function startEditingRecord(id) {
+        const rec = records.find(function (r) { return r.id === id; });
+        if (!rec) return;
+
+        editingRecordId.value = rec.id;
+        srNoInput.value = String(rec.srNo || 1);
+        applicantNameInput.value = rec.applicantName;
+        applicationDateInput.value = rec.applicationDate;
+        if (dateOfBirthInput) dateOfBirthInput.value = rec.dateOfBirth || '';
+        if (dateOfDeathInput) dateOfDeathInput.value = rec.dateOfDeath || '';
+        remarksInput.value = rec.remarks || '';
+
+        const typeRadio = document.querySelector('input[name="recordType"][value="' + rec.recordType + '"]');
+        if (typeRadio) typeRadio.checked = true;
+
+        const dirCode = rec.direction && DIRECTION_META[rec.direction] ? rec.direction : 'A';
+        const dirRadio = document.querySelector('input[name="directionZone"][value="' + dirCode + '"]');
+        if (dirRadio) dirRadio.checked = true;
+
+        const statusRadio = document.querySelector('input[name="fileStatus"][value="' + rec.status + '"]');
+        if (statusRadio) statusRadio.checked = true;
+
+        editModeBadge.classList.remove('hidden');
+        btnCancelEdit.classList.remove('hidden');
+        btnSaveAndAddMore.classList.add('hidden');
+        lblSubmitBtn.textContent = 'Update File';
+
+        updateRecordTypeCardStyles();
+        updateDirectionCardStyles();
+        updateStatusCardStyles();
+
+        if (currentView === 'list') {
+          setView('entry');
+        }
+        applicantNameInput.focus();
+      }
+
+      // Change Record Status directly from Section 2 Table
+      function updateRecordStatus(id, newStatus) {
+        if (!STATUS_META[newStatus]) return;
+        const rec = records.find(function (r) { return r.id === id; });
+        if (!rec) return;
+        rec.status = newStatus;
+        saveRecords();
+        renderAll();
+        showToast(rec.applicantName + ' → ' + STATUS_META[newStatus].label, '🎨');
+      }
+
+      // Open Delete Confirmation Modal
+      function promptDeleteRecord(id) {
+        const rec = records.find(function (r) { return r.id === id; });
+        if (!rec) return;
+        pendingDeleteId = id;
+        deleteModalDesc.textContent = 'Applicant: ' + rec.applicantName + ' | Type: ' + rec.recordType + ' | Date: ' + formatDateDisplay(rec.applicationDate);
+        deleteModal.classList.remove('hidden');
+        deleteModal.classList.add('flex');
+      }
+
+      function closeDeleteModal() {
+        pendingDeleteId = null;
+        deleteModal.classList.add('hidden');
+        deleteModal.classList.remove('flex');
+      }
+
+      function confirmDeleteRecord() {
+        if (!pendingDeleteId) return;
+        records = records.filter(function (r) { return r.id !== pendingDeleteId; });
+        saveRecords();
+        closeDeleteModal();
+        renderAll();
+        showToast('Application file deleted', '🗑️');
+      }
+
+      // Escape HTML
+      function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      // Render Summary Counts & Table Rows
+      function renderAll() {
+        let total = records.length;
+        let birthCount = 0;
+        let deathCount = 0;
+        let pendingCount = 0;
+        let urgentCount = 0;
+        let signRemCount = 0;
+        let signCount = 0;
+
+        records.forEach(function (r) {
+          if (r.recordType === 'Birth') birthCount++;
+          else deathCount++;
+
+          if (r.status === 'pending') pendingCount++;
+          else if (r.status === 'urgent') urgentCount++;
+          else if (r.status === 'sign_remaining') signRemCount++;
+          else if (r.status === 'sign') signCount++;
+        });
+
+        statTotal.textContent = String(total);
+        navTotalBadge.textContent = String(total);
+        statBirthDeathSplit.textContent = 'Birth: ' + birthCount + ' | Death: ' + deathCount;
+        statPending.textContent = String(pendingCount);
+        statUrgent.textContent = String(urgentCount);
+        statSignRem.textContent = String(signRemCount);
+        statSign.textContent = String(signCount);
+
+        refreshSrNoBadgeAndInput();
+
+        const query = searchInput.value.trim().toLowerCase();
+        const dirFilter = filterDirectionSelect.value;
+        const typeFilter = filterTypeSelect.value;
+        const statusFilter = filterStatusSelect.value;
+
+        btnClearSearch.classList.toggle('hidden', query.length === 0);
+
+        const filtered = records.filter(function (r) {
+          const srStr = String(r.srNo || '');
+          const matchesQuery = !query ||
+            srStr.indexOf(query) !== -1 ||
+            (r.applicantName && r.applicantName.toLowerCase().indexOf(query) !== -1) ||
+            (r.remarks && r.remarks.toLowerCase().indexOf(query) !== -1) ||
+            (r.applicationDate && r.applicationDate.indexOf(query) !== -1);
+
+          const rDir = r.direction && DIRECTION_META[r.direction] ? r.direction : 'A';
+          const matchesDir = dirFilter === 'ALL' || rDir === dirFilter;
+          const matchesType = typeFilter === 'ALL' || r.recordType === typeFilter;
+          const matchesStatus = statusFilter === 'ALL' || r.status === statusFilter;
+
+          return matchesQuery && matchesDir && matchesType && matchesStatus;
+        });
+
+        if (filtered.length === 0) {
+          recordsTableBody.innerHTML = '';
+          emptyStateBox.classList.remove('hidden');
+          renderAllQrCodes();
+          return;
+        }
+
+        emptyStateBox.classList.add('hidden');
+
+        const rowsHtml = filtered.map(function (r, idx) {
+          const meta = STATUS_META[r.status] || STATUS_META.pending;
+          const dirMeta = DIRECTION_META[r.direction] || DIRECTION_META.A;
+          const displaySrNo = r.srNo != null ? r.srNo : (idx + 1);
+          const isBirth = r.recordType === 'Birth';
+          const typeBadge = isBirth
+            ? '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-bold bg-sky-100 text-sky-900 border border-sky-300">👶 Birth</span>'
+            : '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-bold bg-slate-200 text-slate-900 border border-slate-400">🕊️ Death</span>';
+
+          const dirBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs sm:text-sm font-extrabold border ' + dirMeta.badgeClass + '">' +
+            '🧭 ' + dirMeta.label +
+            '</span>';
+
+          const statusBadge = '<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-extrabold shadow-sm ' + meta.badgeClass + '">' +
+            '<span>' + meta.label + '</span>' +
+            '</span>';
+
+          const statusButtons = [
+            { key: 'pending', label: 'Pending', cls: 'status-pending' },
+            { key: 'urgent', label: 'Urgent', cls: 'status-urgent' },
+            { key: 'sign_remaining', label: 'Sign Remaining', cls: 'status-sign_remaining' },
+            { key: 'sign', label: 'Sign', cls: 'status-sign' }
+          ].map(function (btn) {
+            const isSelected = r.status === btn.key;
+            const activeRing = isSelected ? 'ring-2 ring-slate-950 font-extrabold scale-105' : 'opacity-75 hover:opacity-100';
+            return '<button type="button" data-action="set-status" data-id="' + r.id + '" data-status="' + btn.key + '" ' +
+              'class="px-2.5 py-1 rounded-md text-xs transition shadow-sm ' + btn.cls + ' ' + activeRing + '">' +
+              (isSelected ? '✓ ' : '') + btn.label +
+              '</button>';
+          }).join('');
+
+          const remarksLine = r.remarks
+            ? '<div class="text-xs text-slate-600 mt-0.5">📌 ' + escapeHtml(r.remarks) + '</div>'
+            : '';
+
+          const dobDodParts = [];
+          if (r.dateOfBirth) {
+            dobDodParts.push('<div class="text-xs font-semibold text-sky-900 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded inline-block">👶 DOB: ' + formatDateDisplay(r.dateOfBirth) + '</div>');
+          }
+          if (r.dateOfDeath) {
+            dobDodParts.push('<div class="text-xs font-semibold text-slate-800 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded inline-block">🕊️ DOD: ' + formatDateDisplay(r.dateOfDeath) + '</div>');
+          }
+          const dobDodCellHtml = dobDodParts.length > 0
+            ? '<div class="flex flex-col gap-1 items-start">' + dobDodParts.join('') + '</div>'
+            : '<span class="text-xs text-slate-400">-</span>';
+
+          return '<tr class="' + meta.rowClass + ' hover:brightness-95 transition">' +
+            '<td class="py-3.5 px-4 font-extrabold text-slate-900 text-base">#' + escapeHtml(String(displaySrNo)) + '</td>' +
+            '<td class="py-3.5 px-4">' +
+              '<div class="font-bold text-slate-950 text-base sm:text-lg">' + escapeHtml(r.applicantName) + '</div>' +
+              remarksLine +
+            '</td>' +
+            '<td class="py-3.5 px-4 font-semibold text-slate-800 whitespace-nowrap">' + formatDateDisplay(r.applicationDate) + '</td>' +
+            '<td class="py-3.5 px-4 whitespace-nowrap">' + typeBadge + '</td>' +
+            '<td class="py-3.5 px-4 whitespace-nowrap">' + dobDodCellHtml + '</td>' +
+            '<td class="py-3.5 px-4 whitespace-nowrap">' + dirBadge + '</td>' +
+            '<td class="py-3.5 px-4 whitespace-nowrap">' + statusBadge + '</td>' +
+            '<td class="py-3.5 px-4 no-print">' +
+              '<div class="flex flex-wrap gap-1.5">' + statusButtons + '</div>' +
+            '</td>' +
+            '<td class="py-3.5 px-4 text-right whitespace-nowrap no-print">' +
+              '<div class="inline-flex items-center gap-1.5">' +
+                '<button type="button" data-action="qr-file" data-id="' + r.id + '" class="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 text-xs font-bold shadow-sm transition" title="Show QR Code for this file">📱 QR</button>' +
+                '<button type="button" data-action="edit" data-id="' + r.id + '" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold shadow-sm transition" title="Edit">✏️ Edit</button>' +
+                '<button type="button" data-action="delete" data-id="' + r.id + '" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-red-50 text-red-700 border border-red-200 text-xs font-bold shadow-sm transition" title="Delete">🗑️ Delete</button>' +
+              '</div>' +
+            '</td>' +
+          '</tr>';
+        }).join('');
+
+        recordsTableBody.innerHTML = rowsHtml;
+        renderAllQrCodes();
+        if (currentView === 'viewer' && hasPerformedViewerSearch) {
+          executePublicViewerSearch(true);
+        }
+      }
+
+      // Sort records by month (YYYY-MM) and then ascending by monthly srNo for official register export
+      function getSortedRecordsForExport() {
+        return records.slice().sort(function (a, b) {
+          const ymA = getYearMonthKey(a.applicationDate);
+          const ymB = getYearMonthKey(b.applicationDate);
+          if (ymA !== ymB) return ymA.localeCompare(ymB);
+          const srA = parseInt(a.srNo, 10) || 0;
+          const srB = parseInt(b.srNo, 10) || 0;
+          return srA - srB;
+        });
+      }
+
+      // Export Stored Records to Native Excel Workbook (.xlsx)
+      function exportToExcelSheet() {
+        if (records.length === 0) {
+          showToast('No records available to export', '⚠️');
+          return;
+        }
+        const sorted = getSortedRecordsForExport();
+        const sheetRows = sorted.map(function (r, idx) {
+          const meta = STATUS_META[r.status] || STATUS_META.pending;
+          const dirMeta = DIRECTION_META[r.direction] || DIRECTION_META.A;
+          return {
+            'Sr. No.': r.srNo != null ? r.srNo : (idx + 1),
+            'Name of Applicant': r.applicantName || '',
+            'Application Date': formatDateDisplay(r.applicationDate),
+            'Birth or Death': r.recordType || 'Birth',
+            'Date of Birth (DOB)': r.dateOfBirth ? formatDateDisplay(r.dateOfBirth) : '-',
+            'Date of Death (DOD)': r.dateOfDeath ? formatDateDisplay(r.dateOfDeath) : '-',
+            'Direction (A/B/C/D)': dirMeta.label,
+            'Status': meta.label,
+            'Remarks': r.remarks || ''
+          };
+        });
+
+        if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) {
+          const ws = XLSX.utils.json_to_sheet(sheetRows);
+          ws['!cols'] = [
+            { wch: 12 },
+            { wch: 32 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 20 },
+            { wch: 20 },
+            { wch: 30 }
+          ];
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Birth_Death_Files');
+          XLSX.writeFile(wb, 'Birth_Death_File_Register_' + getTodayIso() + '.xlsx');
+          showToast('Excel Sheet (.xlsx) downloaded!', '📊');
+          return;
+        }
+
+        // Offline fallback: HTML Table .xls workbook
+        let tableHtml = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"></head><body><table border="1">';
+        tableHtml += '<tr style="background:#0f172a;color:#ffffff;font-weight:bold;">' +
+          '<th>Sr. No.</th>' +
+          '<th>Name of Applicant</th>' +
+          '<th>Application Date</th>' +
+          '<th>Birth or Death</th>' +
+          '<th>Direction (A/B/C/D)</th>' +
+          '<th>Status</th>' +
+          '<th>Remarks</th></tr>';
+        sorted.forEach(function (r, idx) {
+          const meta = STATUS_META[r.status] || STATUS_META.pending;
+          const dirMeta = DIRECTION_META[r.direction] || DIRECTION_META.A;
+          tableHtml += '<tr>' +
+            '<td>' + escapeHtml(String(r.srNo != null ? r.srNo : (idx + 1))) + '</td>' +
+            '<td>' + escapeHtml(r.applicantName || '') + '</td>' +
+            '<td>' + escapeHtml(formatDateDisplay(r.applicationDate)) + '</td>' +
+            '<td>' + escapeHtml(r.recordType || 'Birth') + '</td>' +
+            '<td>' + escapeHtml(dirMeta.label) + '</td>' +
+            '<td>' + escapeHtml(meta.label) + '</td>' +
+            '<td>' + escapeHtml(r.remarks || '') + '</td></tr>';
+        });
+        tableHtml += '</table></body></html>';
+        const blob = new Blob(['\uFEFF' + tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'Birth_Death_File_Register_' + getTodayIso() + '.xls';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('Excel Sheet downloaded!', '📊');
+      }
+
+      // Export Stored Records to CSV
+      function exportToCsv() {
+        if (records.length === 0) {
+          showToast('No records available to export', '⚠️');
+          return;
+        }
+        const headers = [
+          'Sr. No.',
+          'Name of Applicant',
+          'Application Date',
+          'Birth or Death',
+          'Date of Birth (DOB)',
+          'Date of Death (DOD)',
+          'Direction (A/B/C/D)',
+          'Status',
+          'Remarks'
+        ];
+
+        const escapeCsvCell = function (val) {
+          const s = String(val == null ? '' : val).replace(/"/g, '""');
+          return '"' + s + '"';
+        };
+
+        const sorted = getSortedRecordsForExport();
+        const rows = sorted.map(function (r, idx) {
+          const meta = STATUS_META[r.status] || STATUS_META.pending;
+          const dirMeta = DIRECTION_META[r.direction] || DIRECTION_META.A;
+          return [
+            r.srNo != null ? r.srNo : (idx + 1),
+            r.applicantName,
+            formatDateDisplay(r.applicationDate),
+            r.recordType || 'Birth',
+            r.dateOfBirth ? formatDateDisplay(r.dateOfBirth) : '-',
+            r.dateOfDeath ? formatDateDisplay(r.dateOfDeath) : '-',
+            dirMeta.label,
+            meta.label,
+            r.remarks || ''
+          ].map(escapeCsvCell).join(',');
+        });
+
+        const csvContent = '\uFEFF' + headers.map(escapeCsvCell).join(',') + '\r\n' + rows.join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'Birth_Death_Files_' + getTodayIso() + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('CSV file downloaded!', '⬇️');
+      }
+
+      // ============================================================================
+      // QR CODE GENERATOR FOR GENERAL PUBLIC VIEWER PORTAL
+      // Supports:
+      // 1) 'status' mode (Default in preview): Encodes live Birth & Death file statuses directly
+      //    into the QR code so scanning with any phone camera shows the statuses immediately!
+      // 2) 'url' mode: Encodes the hosted https:// website link once deployed.
+      // ============================================================================
+      let qrMode = 'status'; // 'status' | 'url'
+      let singleFileQrRecordId = null;
+
+      function isRealPublicHttpUrl(urlStr) {
+        if (!urlStr) return false;
+        if (!/^https?:\/\//i.test(urlStr)) return false;
+        if (urlStr.indexOf('googleusercontent.com') !== -1 || urlStr.indexOf('usercontent.goog') !== -1 || urlStr.indexOf('birth-death-file-tracker.app') !== -1) {
+          return false;
+        }
+        return true;
+      }
+
+      function buildLiveStatusQrPayload() {
+        if (singleFileQrRecordId) {
+          const rec = records.find(function (r) { return r.id === singleFileQrRecordId; });
+          if (rec) {
+            const meta = STATUS_META[rec.status] || STATUS_META.pending;
+            const dirMeta = DIRECTION_META[rec.direction] || DIRECTION_META.A;
+            const lines = [
+              'BIRTH & DEATH FILE STATUS',
+              '-------------------------',
+              'Sr. No.: #' + (rec.srNo || 1),
+              'Applicant: ' + rec.applicantName,
+              'Type: ' + rec.recordType,
+              'App Date: ' + formatDateDisplay(rec.applicationDate)
+            ];
+            if (rec.dateOfBirth) lines.push('DOB: ' + formatDateDisplay(rec.dateOfBirth));
+            if (rec.dateOfDeath) lines.push('DOD: ' + formatDateDisplay(rec.dateOfDeath));
+            lines.push('Direction: ' + dirMeta.label);
+            lines.push('STATUS: ' + meta.label.toUpperCase());
+            if (rec.remarks) lines.push('Remarks: ' + rec.remarks);
+            return lines.join('\n');
+          }
+        }
+
+        // Privacy-First General QR Payload: Never expose all citizens' names in the public poster QR!
+        // If the citizen has verified a single record in the Public Viewer, encode ONLY their verified record.
+        if (lastVerifiedViewerRecord) {
+          const rec = lastVerifiedViewerRecord;
+          const meta = STATUS_META[rec.status] || STATUS_META.pending;
+          const dirMeta = DIRECTION_META[rec.direction] || DIRECTION_META.A;
+          const lines = [
+            'VERIFIED BIRTH & DEATH FILE RECEIPT',
+            '-----------------------------------',
+            'Sr. No.: #' + (rec.srNo || 1),
+            'Applicant: ' + rec.applicantName,
+            'Type: ' + rec.recordType,
+            'App Date: ' + formatDateDisplay(rec.applicationDate),
+            'Direction: ' + dirMeta.label,
+            'CURRENT STATUS: ' + meta.label.toUpperCase()
+          ];
+          return lines.join('\n');
+        }
+
+        return [
+          'BIRTH & DEATH FILE STATUS PORTAL',
+          '--------------------------------',
+          '🔒 Privacy Protected Citizen Portal',
+          'To check your application status privately:',
+          '1. Enter Full Name of Applicant',
+          '2. Select Birth or Death',
+          '3. Enter Application Date',
+          '4. Enter Date of Birth (DOB) or Date of Death (DOD)',
+          '',
+          'For an individual file QR receipt, ask Admin to click [📱 QR] next to your file.'
+        ].join('\n');
+      }
+
+      function getPublicViewerUrl() {
+        const qrInput = document.getElementById('qrUrlInput');
+        const customUrl = qrInput ? qrInput.value.trim() : '';
+        if (qrMode === 'url' && customUrl) {
+          return customUrl;
+        }
+        try {
+          const base = window.location.href.split('#')[0];
+          if (isRealPublicHttpUrl(base)) {
+            return base + '#viewer';
+          }
+        } catch (e) {}
+        return buildLiveStatusQrPayload();
+      }
+
+      // Render QR Code onto a Canvas element (uses qrcode-generator library with deterministic matrix fallback)
+      function createQrCanvas(text, sizePx) {
+        const canvas = document.createElement('canvas');
+        canvas.width = sizePx;
+        canvas.height = sizePx;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, sizePx, sizePx);
+
+        if (typeof qrcode === 'function') {
+          try {
+            const qr = qrcode(0, 'M');
+            qr.addData(text);
+            qr.make();
+            const count = qr.getModuleCount();
+            const margin = 2;
+            const totalModules = count + margin * 2;
+            const cellSize = sizePx / totalModules;
+            ctx.fillStyle = '#0f172a';
+            for (let r = 0; r < count; r++) {
+              for (let c = 0; c < count; c++) {
+                if (qr.isDark(r, c)) {
+                  ctx.fillRect(
+                    Math.floor((c + margin) * cellSize),
+                    Math.floor((r + margin) * cellSize),
+                    Math.ceil(cellSize),
+                    Math.ceil(cellSize)
+                  );
+                }
+              }
+            }
+            return canvas;
+          } catch (e) {}
+        }
+
+        // Offline deterministic QR-style finder pattern + data matrix fallback
+        const grid = 25;
+        const cell = sizePx / (grid + 4);
+        ctx.fillStyle = '#0f172a';
+        const drawFinder = function (ox, oy) {
+          for (let r = 0; r < 7; r++) {
+            for (let c = 0; c < 7; c++) {
+              if (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4)) {
+                ctx.fillRect((ox + c + 2) * cell, (oy + r + 2) * cell, Math.ceil(cell), Math.ceil(cell));
+              }
+            }
+          }
+        };
+        drawFinder(0, 0);
+        drawFinder(grid - 7, 0);
+        drawFinder(0, grid - 7);
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i++) {
+          hash ^= text.charCodeAt(i);
+          hash = Math.imul(hash, 16777619);
+        }
+        for (let r = 0; r < grid; r++) {
+          for (let c = 0; c < grid; c++) {
+            const inFinder = (r < 8 && c < 8) || (r < 8 && c >= grid - 8) || (r >= grid - 8 && c < 8);
+            if (!inFinder) {
+              const bit = ((hash ^ (r * 31 + c * 17)) & 3) === 0;
+              if (bit) {
+                ctx.fillRect((c + 2) * cell, (r + 2) * cell, Math.ceil(cell), Math.ceil(cell));
+              }
+            }
+          }
+        }
+        return canvas;
+      }
+
+      function setQrMode(mode) {
+        qrMode = mode;
+        const btnStatus = document.getElementById('btnQrModeStatus');
+        const btnUrl = document.getElementById('btnQrModeUrl');
+        const statusPanel = document.getElementById('qrStatusModePanel');
+        const urlPanel = document.getElementById('qrUrlModePanel');
+        const modalTitle = document.getElementById('modalQrTitle');
+        const modalSub = document.getElementById('modalQrSubtitle');
+
+        if (mode === 'status') {
+          if (btnStatus) btnStatus.className = 'py-2 px-3 rounded-lg bg-slate-900 text-white shadow-sm transition';
+          if (btnUrl) btnUrl.className = 'py-2 px-3 rounded-lg bg-white text-slate-700 hover:bg-slate-200 transition';
+          if (statusPanel) statusPanel.classList.remove('hidden');
+          if (urlPanel) urlPanel.classList.add('hidden');
+          if (modalTitle) modalTitle.textContent = singleFileQrRecordId ? 'Scan for Individual File Receipt' : 'Scan with Phone Camera / Google Lens';
+          if (modalSub) modalSub.textContent = 'Immediately displays the live Birth & Death File Statuses on the phone screen!';
+        } else {
+          if (btnUrl) btnUrl.className = 'py-2 px-3 rounded-lg bg-slate-900 text-white shadow-sm transition';
+          if (btnStatus) btnStatus.className = 'py-2 px-3 rounded-lg bg-white text-slate-700 hover:bg-slate-200 transition';
+          if (statusPanel) statusPanel.classList.add('hidden');
+          if (urlPanel) urlPanel.classList.remove('hidden');
+          if (modalTitle) modalTitle.textContent = 'Scan to Open Hosted Public Website';
+          if (modalSub) modalSub.textContent = 'Opens the hosted https:// link below in the citizen\'s mobile browser.';
+        }
+        renderAllQrCodes();
+      }
+
+      function renderAllQrCodes() {
+        const payload = getPublicViewerUrl();
+        const inlineBox = document.getElementById('inlineViewerQrBox');
+        const modalBox = document.getElementById('modalQrCodeContainer');
+        const countBadge = document.getElementById('qrEncodedCountBadge');
+        if (countBadge) {
+          countBadge.textContent = singleFileQrRecordId ? 'Single File Receipt' : (records.length + ' Files Synced');
+        }
+        if (inlineBox) {
+          inlineBox.innerHTML = '';
+          const cSmall = createQrCanvas(payload, 96);
+          cSmall.className = 'w-full h-full object-contain';
+          inlineBox.appendChild(cSmall);
+        }
+        if (modalBox) {
+          modalBox.innerHTML = '';
+          const cLarge = createQrCanvas(payload, 176);
+          cLarge.id = 'qrModalCanvas';
+          cLarge.className = 'w-full h-full object-contain';
+          modalBox.appendChild(cLarge);
+        }
+      }
+
+      function openQrModal(specificRecordId) {
+        singleFileQrRecordId = typeof specificRecordId === 'string' ? specificRecordId : null;
+        const modal = document.getElementById('qrCodeModal');
+        if (singleFileQrRecordId) {
+          setQrMode('status');
+        } else {
+          renderAllQrCodes();
+        }
+        if (modal) {
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+      }
+
+      // Download complete standalone index.html with all current records pre-embedded so hosting it anywhere works immediately
+      function downloadStandaloneWebsiteHtml() {
+        const currentDoc = document.documentElement.outerHTML;
+        const injectedRecordsJson = JSON.stringify(records);
+        const updatedDoc = currentDoc.replace(
+          'records = [];',
+          'records = ' + injectedRecordsJson + ';'
+        );
+        const blob = new Blob([updatedDoc], { type: 'text/html;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'index.html';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('Downloaded index.html with all current files embedded!', '🌐');
+      }
+
+      function closeQrModal() {
+        const modal = document.getElementById('qrCodeModal');
+        if (modal) {
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+        }
+      }
+
+      function downloadQrCodePng() {
+        const url = getPublicViewerUrl();
+        const hiResCanvas = createQrCanvas(url, 512);
+        const dataUrl = hiResCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = 'Public_Status_Viewer_QR.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Public QR Code downloaded as PNG!', '📱');
+      }
+
+      let lastVerifiedViewerRecord = null;
+      let viewerShowingAllMode = false;
+
+      // Public Viewer-Only Search Logic (Strict Privacy: Matches Applicant Name + Birth/Death + Application Date + DOB/DOD)
+      function updateViewerTypeCardStyles() {
+        const sel = document.querySelector('input[name="viewerRecordType"]:checked');
+        const val = sel ? sel.value : 'Birth';
+        const cBirth = document.getElementById('viewerCardBirth');
+        const cDeath = document.getElementById('viewerCardDeath');
+        const lblEvent = document.getElementById('lblViewerEventDate');
+        if (lblEvent) {
+          lblEvent.innerHTML = val === 'Birth'
+            ? '4. Date of Birth (DOB) <span class="text-red-600">*</span>'
+            : '4. Date of Death (DOD) <span class="text-red-600">*</span>';
+        }
+        if (!cBirth || !cDeath) return;
+        if (val === 'Birth') {
+          cBirth.className = 'cursor-pointer rounded-xl border-2 border-sky-600 bg-sky-50 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none shadow-sm';
+          cDeath.className = 'cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none';
+        } else {
+          cBirth.className = 'cursor-pointer rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none';
+          cDeath.className = 'cursor-pointer rounded-xl border-2 border-slate-800 bg-slate-100 px-2.5 py-2.5 flex items-center gap-1.5 transition select-none shadow-sm';
+        }
+      }
+
+      function normalizeApplicantName(nameStr) {
+        return (nameStr || '')
+          .toLowerCase()
+          .replace(/^(mr\.?|mrs\.?|ms\.?|late)\s+/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function shareLiveStatusOnWhatsApp() {
+        if (!lastVerifiedViewerRecord && !isAdminAuthenticated) {
+          showToast('Please verify your application details first to share your file status', '🔒');
+          return;
+        }
+        const text = buildLiveStatusQrPayload();
+        const waUrl = 'https://wa.me/?text=' + encodeURIComponent(text);
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
+      }
+
+      function executePublicViewerSearch(isSilentAutoRefresh) {
+        const viewerNameInput = document.getElementById('viewerNameInput');
+        const viewerDateInput = document.getElementById('viewerDateInput');
+        const viewerEventDateInput = document.getElementById('viewerEventDateInput');
+        const typeEl = document.querySelector('input[name="viewerRecordType"]:checked');
+
+        if (!viewerNameInput || !viewerDateInput) return;
+
+        const rawName = viewerNameInput.value.trim();
+        const dateVal = viewerDateInput.value;
+        const eventDateVal = viewerEventDateInput ? viewerEventDateInput.value : '';
+        const typeVal = typeEl ? typeEl.value : 'Birth';
+
+        if (!rawName || rawName.length < 3) {
+          if (!isSilentAutoRefresh) {
+            viewerNameInput.focus();
+            showToast('Please enter the full Name of Applicant (at least 3 characters)', '🔒');
+          }
+          return;
+        }
+        if (!dateVal) {
+          if (!isSilentAutoRefresh) {
+            viewerDateInput.focus();
+            showToast('Please select your exact Application Date for privacy verification', '🔒');
+          }
+          return;
+        }
+        hasPerformedViewerSearch = true;
+
+        const queryNorm = normalizeApplicantName(rawName);
+
+        // Strict Privacy Filter:
+        // 1. Name must match the full normalized name (or >= 5 char exact substring, never a 1-letter browse)
+        // 2. Application Type (Birth or Death) must match
+        // 3. Application Date must match exactly
+        // 4. If the file has a Date of Birth (for Birth) or Date of Death (for Death) recorded by Admin, the citizen MUST provide that matching DOB/DOD!
+        const matches = records.filter(function (r) {
+          const recNorm = normalizeApplicantName(r.applicantName);
+          const nameMatched = (recNorm === queryNorm) || (queryNorm.length >= 5 && recNorm.indexOf(queryNorm) !== -1);
+          const typeMatched = r.recordType === typeVal;
+          const dateMatched = r.applicationDate === dateVal;
+
+          const requiredEventDate = typeVal === 'Birth' ? (r.dateOfBirth || '') : (r.dateOfDeath || '');
+          const eventDateMatched = !requiredEventDate || (eventDateVal === requiredEventDate);
+
+          return nameMatched && typeMatched && dateMatched && eventDateMatched;
+        });
+
+        lastVerifiedViewerRecord = matches.length === 1 ? matches[0] : (matches[0] || null);
+        renderAllQrCodes();
+
+        const initialPrompt = document.getElementById('viewerInitialPrompt');
+        const noMatchBox = document.getElementById('viewerNoMatchBox');
+        const matchedList = document.getElementById('viewerMatchedList');
+
+        if (initialPrompt) initialPrompt.classList.add('hidden');
+
+        if (matches.length === 0) {
+          if (noMatchBox) noMatchBox.classList.remove('hidden');
+          if (matchedList) {
+            matchedList.classList.add('hidden');
+            matchedList.innerHTML = '';
+          }
+          return;
+        }
+
+        if (noMatchBox) noMatchBox.classList.add('hidden');
+        if (matchedList) {
+          matchedList.classList.remove('hidden');
+          matchedList.innerHTML = matches.map(function (r) {
+            const meta = STATUS_META[r.status] || STATUS_META.pending;
+            const dirMeta = DIRECTION_META[r.direction] || DIRECTION_META.A;
+            const isBirth = r.recordType === 'Birth';
+            const typeLabel = isBirth ? '👶 Birth Application' : '🕊️ Death Application';
+
+            return '<div class="rounded-2xl border-2 border-slate-200 p-5 shadow-sm ' + meta.rowClass + ' flex flex-col md:flex-row md:items-center justify-between gap-4">' +
+              '<div class="space-y-1.5">' +
+                '<div class="flex flex-wrap items-center gap-2">' +
+                  '<span class="px-2.5 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-extrabold">Sr. No. #' + escapeHtml(String(r.srNo || 1)) + '</span>' +
+                  '<span class="px-2.5 py-0.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs font-bold">' + typeLabel + '</span>' +
+                  '<span class="px-2.5 py-0.5 rounded-lg border text-xs font-bold ' + dirMeta.badgeClass + '">🧭 Direction: ' + dirMeta.label + '</span>' +
+                '</div>' +
+                '<div class="text-lg sm:text-xl font-extrabold text-slate-950">' + escapeHtml(r.applicantName) + '</div>' +
+                '<div class="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-slate-700 font-semibold">' +
+                  '<span>📅 Application Date: ' + formatDateDisplay(r.applicationDate) + '</span>' +
+                  (r.dateOfBirth ? '<span class="text-sky-800">👶 Date of Birth: ' + formatDateDisplay(r.dateOfBirth) + '</span>' : '') +
+                  (r.dateOfDeath ? '<span class="text-slate-800">🕊️ Date of Death: ' + formatDateDisplay(r.dateOfDeath) + '</span>' : '') +
+                '</div>' +
+                (r.remarks ? '<div class="text-xs text-slate-600">📌 Remarks: ' + escapeHtml(r.remarks) + '</div>' : '') +
+              '</div>' +
+              '<div class="shrink-0 flex flex-col sm:items-end gap-1">' +
+                '<span class="text-xs font-bold text-slate-500">Current File Status:</span>' +
+                '<div class="px-4 py-2.5 rounded-xl font-extrabold text-sm sm:text-base shadow-md inline-flex items-center gap-2 ' + meta.badgeClass + '">' +
+                  '<span>●</span>' +
+                  '<span>' + meta.label + '</span>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
+
+      // Event Listeners Setup
+      function initEvents() {
+        const btnSwitchToViewer = document.getElementById('btnSwitchToViewer');
+        const btnOpenAdminLogin = document.getElementById('btnOpenAdminLogin');
+        const btnViewerAdminShortcut = document.getElementById('btnViewerAdminShortcut');
+        const btnAdminLogout = document.getElementById('btnAdminLogout');
+
+        const btnOpenQrModal = document.getElementById('btnOpenQrModal');
+        const btnViewerShowQr = document.getElementById('btnViewerShowQr');
+        const btnEnlargeQrCard = document.getElementById('btnEnlargeQrCard');
+        const btnCloseQrModal = document.getElementById('btnCloseQrModal');
+        const btnUpdateQrUrl = document.getElementById('btnUpdateQrUrl');
+        const btnDownloadQr = document.getElementById('btnDownloadQr');
+        const btnPrintQrPoster = document.getElementById('btnPrintQrPoster');
+
+        const adminLoginForm = document.getElementById('adminLoginForm');
+        const btnCloseAdminModal = document.getElementById('btnCloseAdminModal');
+        const btnCancelAdminLogin = document.getElementById('btnCancelAdminLogin');
+        const btnToggleAdminPwd = document.getElementById('btnToggleAdminPwd');
+        const adminEmailInput = document.getElementById('adminEmailInput');
+        const adminPasswordInput = document.getElementById('adminPasswordInput');
+        const adminLoginError = document.getElementById('adminLoginError');
+
+        const publicViewerForm = document.getElementById('publicViewerForm');
+        const btnViewerReset = document.getElementById('btnViewerReset');
+        const viewerDateInput = document.getElementById('viewerDateInput');
+        const viewerNameInput = document.getElementById('viewerNameInput');
+
+        const btnViewerShowAllLive = document.getElementById('btnViewerShowAllLive');
+        const btnShareWhatsApp = document.getElementById('btnShareWhatsApp');
+        if (btnViewerShowAllLive) {
+          btnViewerShowAllLive.addEventListener('click', function () {
+            if (viewerNameInput) viewerNameInput.value = '';
+            if (viewerDateInput) viewerDateInput.value = '';
+            executePublicViewerSearch(false, true);
+          });
+        }
+        if (btnShareWhatsApp) {
+          btnShareWhatsApp.addEventListener('click', shareLiveStatusOnWhatsApp);
+        }
+
+        if (tabBtnViewer) {
+          tabBtnViewer.addEventListener('click', function () { setView('viewer'); });
+        }
+        if (btnSwitchToViewer) {
+          btnSwitchToViewer.addEventListener('click', function () { setView('viewer'); });
+        }
+
+        // QR Code Modal triggers
+        const btnQrModeStatus = document.getElementById('btnQrModeStatus');
+        const btnQrModeUrl = document.getElementById('btnQrModeUrl');
+        const btnDownloadStandaloneSite = document.getElementById('btnDownloadStandaloneSite');
+        const inlineViewerQrBox = document.getElementById('inlineViewerQrBox');
+
+        if (btnOpenQrModal) btnOpenQrModal.addEventListener('click', function () { openQrModal(null); });
+        if (btnViewerShowQr) btnViewerShowQr.addEventListener('click', function () { openQrModal(null); });
+        if (btnEnlargeQrCard) btnEnlargeQrCard.addEventListener('click', function () { openQrModal(null); });
+        if (inlineViewerQrBox) inlineViewerQrBox.addEventListener('click', function () { openQrModal(null); });
+        if (btnCloseQrModal) btnCloseQrModal.addEventListener('click', closeQrModal);
+        if (btnQrModeStatus) btnQrModeStatus.addEventListener('click', function () { setQrMode('status'); });
+        if (btnQrModeUrl) btnQrModeUrl.addEventListener('click', function () { setQrMode('url'); });
+        if (btnDownloadStandaloneSite) btnDownloadStandaloneSite.addEventListener('click', downloadStandaloneWebsiteHtml);
+        if (btnUpdateQrUrl) {
+          btnUpdateQrUrl.addEventListener('click', function () {
+            const qrInput = document.getElementById('qrUrlInput');
+            if (!qrInput || !qrInput.value.trim()) {
+              showToast('Please paste a valid https:// website link first', '⚠️');
+              return;
+            }
+            setQrMode('url');
+            showToast('QR Code updated with your website link!', '📱');
+          });
+        }
+        if (btnDownloadQr) btnDownloadQr.addEventListener('click', downloadQrCodePng);
+        if (btnPrintQrPoster) {
+          btnPrintQrPoster.addEventListener('click', function () {
+            window.print();
+          });
+        }
+
+        if (btnOpenAdminLogin) {
+          btnOpenAdminLogin.addEventListener('click', function () {
+            if (isAdminAuthenticated) {
+              setView(window.innerWidth >= 1024 ? 'split' : 'entry');
+            } else {
+              openAdminLoginModal(window.innerWidth >= 1024 ? 'split' : 'entry');
+            }
+          });
+        }
+        if (btnViewerAdminShortcut) {
+          btnViewerAdminShortcut.addEventListener('click', function () {
+            if (isAdminAuthenticated) {
+              setView(window.innerWidth >= 1024 ? 'split' : 'entry');
+            } else {
+              openAdminLoginModal(window.innerWidth >= 1024 ? 'split' : 'entry');
+            }
+          });
+        }
+        if (btnAdminLogout) {
+          btnAdminLogout.addEventListener('click', function () {
+            isAdminAuthenticated = false;
+            currentAdminEmail = '';
+            try { localStorage.removeItem(ADMIN_SESSION_KEY); } catch (e) {}
+            updateAdminHeaderUI();
+            setView('viewer');
+            showToast('Logged out of Admin account', '🔒');
+          });
+        }
+
+        if (btnCloseAdminModal) btnCloseAdminModal.addEventListener('click', closeAdminLoginModal);
+        if (btnCancelAdminLogin) btnCancelAdminLogin.addEventListener('click', closeAdminLoginModal);
+
+        if (btnToggleAdminPwd && adminPasswordInput) {
+          btnToggleAdminPwd.addEventListener('click', function () {
+            const isPwd = adminPasswordInput.type === 'password';
+            adminPasswordInput.type = isPwd ? 'text' : 'password';
+            btnToggleAdminPwd.textContent = isPwd ? 'Hide' : 'Show';
+          });
+        }
+
+        // Validate against both Admin accounts:
+        // 1) aryanbhavsar194@gmail.com -> KGL2126
+        // 2) govindalokhandesap@gmail.com -> KGL@2126
+        if (adminLoginForm) {
+          adminLoginForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const enteredEmail = (adminEmailInput.value || '').trim().toLowerCase();
+            const enteredPass = (adminPasswordInput.value || '').trim();
+            const expectedPass = ADMIN_ACCOUNTS[enteredEmail];
+
+            if (expectedPass && enteredPass === expectedPass) {
+              isAdminAuthenticated = true;
+              currentAdminEmail = enteredEmail;
+              try { localStorage.setItem(ADMIN_SESSION_KEY, enteredEmail); } catch (err) {}
+              closeAdminLoginModal();
+              updateAdminHeaderUI();
+              setView(pendingAdminTargetView || (window.innerWidth >= 1024 ? 'split' : 'entry'));
+              showToast('Welcome Admin (' + enteredEmail + ')!', '🔓');
+            } else {
+              if (adminLoginError) adminLoginError.classList.remove('hidden');
+              adminPasswordInput.focus();
+            }
+          });
+        }
+
+        document.querySelectorAll('input[name="viewerRecordType"]').forEach(function (r) {
+          r.addEventListener('change', updateViewerTypeCardStyles);
+        });
+
+        if (publicViewerForm) {
+          publicViewerForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            executePublicViewerSearch(false);
+          });
+        }
+
+        if (btnViewerReset) {
+          btnViewerReset.addEventListener('click', function () {
+            hasPerformedViewerSearch = false;
+            lastVerifiedViewerRecord = null;
+            const viewerEventDateInput = document.getElementById('viewerEventDateInput');
+            if (viewerNameInput) viewerNameInput.value = '';
+            if (viewerDateInput) viewerDateInput.value = '';
+            if (viewerEventDateInput) viewerEventDateInput.value = '';
+            const bRadio = document.querySelector('input[name="viewerRecordType"][value="Birth"]');
+            if (bRadio) bRadio.checked = true;
+            updateViewerTypeCardStyles();
+            const initialPrompt = document.getElementById('viewerInitialPrompt');
+            const noMatchBox = document.getElementById('viewerNoMatchBox');
+            const matchedList = document.getElementById('viewerMatchedList');
+            if (initialPrompt) initialPrompt.classList.remove('hidden');
+            if (noMatchBox) noMatchBox.classList.add('hidden');
+            if (matchedList) {
+              matchedList.classList.add('hidden');
+              matchedList.innerHTML = '';
+            }
+          });
+        }
+
+        tabBtnEntry.addEventListener('click', function () { setView('entry'); });
+        tabBtnList.addEventListener('click', function () { setView('list'); });
+        tabBtnSplit.addEventListener('click', function () { setView('split'); });
+
+        btnQuickNewEntry.addEventListener('click', function () {
+          resetEntryForm();
+          setView('entry');
+          applicantNameInput.focus();
+        });
+
+        applicationDateInput.addEventListener('change', function () {
+          refreshSrNoBadgeAndInput();
+        });
+
+        btnSetToday.addEventListener('click', function () {
+          applicationDateInput.value = getTodayIso();
+          refreshSrNoBadgeAndInput();
+          showToast("Set to today's date", '📅');
+        });
+
+        // Quick Prefix Buttons
+        document.querySelectorAll('.quick-word-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            const word = btn.getAttribute('data-insert-text') || '';
+            const target = activeInputEl || applicantNameInput;
+            const start = target.selectionStart || target.value.length;
+            const end = target.selectionEnd || target.value.length;
+            const val = target.value;
+            target.value = val.slice(0, start) + word + val.slice(end);
+            target.focus();
+            const newPos = start + word.length;
+            if (target.setSelectionRange) {
+              target.setSelectionRange(newPos, newPos);
+            }
+          });
+        });
+
+        // Radio card visual updates
+        document.querySelectorAll('input[name="recordType"]').forEach(function (r) {
+          r.addEventListener('change', updateRecordTypeCardStyles);
+        });
+        document.querySelectorAll('input[name="directionZone"]').forEach(function (r) {
+          r.addEventListener('change', updateDirectionCardStyles);
+        });
+        document.querySelectorAll('input[name="fileStatus"]').forEach(function (r) {
+          r.addEventListener('change', updateStatusCardStyles);
+        });
+
+        // Form submission
+        applicationForm.addEventListener('submit', function (e) {
+          e.preventDefault();
+          handleFormSave(false);
+        });
+
+        btnSaveAndAddMore.addEventListener('click', function () {
+          handleFormSave(true);
+        });
+
+        btnCancelEdit.addEventListener('click', function () {
+          resetEntryForm();
+          setView('list');
+        });
+
+        btnResetForm.addEventListener('click', function () {
+          resetEntryForm();
+          showToast('Form cleared', '🧹');
+        });
+
+        // Filters & Search
+        searchInput.addEventListener('input', renderAll);
+        btnClearSearch.addEventListener('click', function () {
+          searchInput.value = '';
+          renderAll();
+          searchInput.focus();
+        });
+        filterDirectionSelect.addEventListener('change', renderAll);
+        filterTypeSelect.addEventListener('change', renderAll);
+        filterStatusSelect.addEventListener('change', renderAll);
+
+        // Top Summary Cards act as 1-click Status Filters
+        document.querySelectorAll('.summary-card').forEach(function (card) {
+          card.addEventListener('click', function () {
+            const statusVal = card.getAttribute('data-filter-card') || 'ALL';
+            filterStatusSelect.value = statusVal;
+            if (currentView === 'entry') {
+              setView('list');
+            }
+            renderAll();
+          });
+        });
+
+        // Table Actions Delegation (Status Change, Edit, Delete)
+        recordsTableBody.addEventListener('click', function (e) {
+          const btn = e.target.closest('button[data-action]');
+          if (!btn) return;
+          const action = btn.getAttribute('data-action');
+          const id = btn.getAttribute('data-id');
+          if (action === 'set-status') {
+            const newStatus = btn.getAttribute('data-status');
+            updateRecordStatus(id, newStatus);
+          } else if (action === 'qr-file') {
+            openQrModal(id);
+          } else if (action === 'edit') {
+            startEditingRecord(id);
+          } else if (action === 'delete') {
+            promptDeleteRecord(id);
+          }
+        });
+
+        // Empty state buttons
+        btnEmptyResetFilter.addEventListener('click', function () {
+          searchInput.value = '';
+          filterDirectionSelect.value = 'ALL';
+          filterTypeSelect.value = 'ALL';
+          filterStatusSelect.value = 'ALL';
+          renderAll();
+        });
+        btnEmptyAddFirst.addEventListener('click', function () {
+          resetEntryForm();
+          setView('entry');
+          applicantNameInput.focus();
+        });
+
+        // Delete Modal
+        btnCancelDelete.addEventListener('click', closeDeleteModal);
+        btnConfirmDelete.addEventListener('click', confirmDeleteRecord);
+
+        // Cross-Device Live Sync Modal & Controls
+        const btnOpenSyncModal = document.getElementById('btnOpenSyncModal');
+        const btnCloseSyncModal = document.getElementById('btnCloseSyncModal');
+        const syncModal = document.getElementById('syncModal');
+        const btnSaveSyncRoom = document.getElementById('btnSaveSyncRoom');
+        const btnSaveFirebaseUrl = document.getElementById('btnSaveFirebaseUrl');
+        const btnForceSyncPush = document.getElementById('btnForceSyncPush');
+        const btnForceSyncPull = document.getElementById('btnForceSyncPull');
+        const btnViewerRefreshNow = document.getElementById('btnViewerRefreshNow');
+
+        if (btnOpenSyncModal && syncModal) {
+          btnOpenSyncModal.addEventListener('click', function () {
+            syncModal.classList.remove('hidden');
+            syncModal.classList.add('flex');
+          });
+        }
+        if (btnCloseSyncModal && syncModal) {
+          btnCloseSyncModal.addEventListener('click', function () {
+            syncModal.classList.add('hidden');
+            syncModal.classList.remove('flex');
+          });
+        }
+        if (btnSaveSyncRoom) {
+          btnSaveSyncRoom.addEventListener('click', function () {
+            const inp = document.getElementById('syncRoomCodeInput');
+            if (inp && inp.value.trim()) {
+              syncRoomCode = inp.value.trim().toUpperCase();
+              try { localStorage.setItem(SYNC_ROOM_KEY, syncRoomCode); } catch (e) {}
+              pullRecordsFromCloud(false);
+              connectHttpsEventStream();
+              connectMqttBroker(0);
+              if (records.length > 0) pushRecordsToCloud(false);
+              showToast('Connected to Sync Room: ' + syncRoomCode, '📡');
+            }
+          });
+        }
+        if (btnSaveFirebaseUrl) {
+          btnSaveFirebaseUrl.addEventListener('click', function () {
+            const inp = document.getElementById('firebaseDbUrlInput');
+            customFirebaseUrl = inp ? inp.value.trim() : '';
+            try { localStorage.setItem(FIREBASE_URL_KEY, customFirebaseUrl); } catch (e) {}
+            if (customFirebaseUrl) {
+              pushRecordsToCloud(true);
+            } else {
+              showToast('Using default built-in WebSocket live relay', '✅');
+            }
+          });
+        }
+        if (btnForceSyncPush) {
+          btnForceSyncPush.addEventListener('click', function () {
+            pushRecordsToCloud(true);
+          });
+        }
+        if (btnForceSyncPull) {
+          btnForceSyncPull.addEventListener('click', function () {
+            pullRecordsFromCloud(true);
+          });
+        }
+        if (btnViewerRefreshNow) {
+          btnViewerRefreshNow.addEventListener('click', function () {
+            pullRecordsFromCloud(true);
+            if (hasPerformedViewerSearch) {
+              executePublicViewerSearch(true);
+            }
+          });
+        }
+
+        // Export & Print
+        btnExportExcel.addEventListener('click', exportToExcelSheet);
+        btnExportCsv.addEventListener('click', exportToCsv);
+        btnPrintList.addEventListener('click', function () {
+          const ts = document.getElementById('printTimestamp');
+          if (ts) {
+            ts.textContent = 'Printed on: ' + formatDateDisplay(getTodayIso()) + ' | Total Files: ' + records.length;
+          }
+          if (currentView === 'entry') {
+            setView('list');
+          }
+          window.print();
+        });
+      }
+
+      // Initialize App
+      function init() {
+        loadRecords();
+        try {
+          const savedEmail = localStorage.getItem(ADMIN_SESSION_KEY);
+          if (savedEmail && ADMIN_ACCOUNTS[savedEmail]) {
+            isAdminAuthenticated = true;
+            currentAdminEmail = savedEmail;
+          }
+        } catch (e) {}
+
+        resetEntryForm();
+        initEvents();
+        initRealtimeSyncEngine();
+        updateAdminHeaderUI();
+        renderAllQrCodes();
+
+        if (window.location.hash === '#viewer' || !isAdminAuthenticated) {
+          setView('viewer');
+        } else {
+          setView(window.innerWidth >= 1024 ? 'split' : 'entry');
+        }
+        renderAll();
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
